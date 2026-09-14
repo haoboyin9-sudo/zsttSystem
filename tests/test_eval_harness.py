@@ -7,6 +7,7 @@ import pytest
 
 from eval import metrics
 from eval.schema import GoldItem, dataset_summary, load_dataset, save_dataset
+from src.online_service import generator
 
 
 # ---------------------------------------------------------------------------
@@ -96,9 +97,18 @@ def test_load_dataset_rejects_duplicate_ids(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_refusal_detection_matches_the_generator_wording() -> None:
-    assert metrics.is_refusal(
-        "根据当前知识库，未找到足够相关且可靠的教学证据来回答这个问题。"
-    )
+    # Take the refusal strings from the generator itself rather than copying
+    # them by hand, so a wording change there fails this test instead of
+    # silently skewing the refusal and uncited-answer rates.
+    for persona in ("student", "teacher", "visitor"):
+        assert metrics.is_refusal(
+            generator.build_fallback_answer("任意问题", [], persona)
+        )
+    # NLI verification failure is a refusal too: text was generated but
+    # nothing survived grounding, and it ships with an empty citation list.
+    nli_fallback = generator.get_fallback_response()
+    assert nli_fallback["citations"] == []
+    assert metrics.is_refusal(nli_fallback["answer"])
     assert metrics.is_refusal("未找到明确的硬先修课程。")
     assert metrics.is_refusal(
         "课程依赖查询需要 Neo4j 图数据库支持，当前服务未连接 Neo4j。"

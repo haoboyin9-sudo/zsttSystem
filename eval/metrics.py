@@ -34,6 +34,10 @@ REFUSAL_MARKERS: tuple[str, ...] = (
     # answers would inflate the hallucination rate whenever Neo4j is down.
     "未连接 Neo4j",
     "本地知识库暂无可用证据",
+    # NLI verification failure (generator.get_fallback_response): the model
+    # produced text but nothing survived grounding, so the service declined.
+    # Missing this marker counted every such refusal as an uncited answer.
+    "无法给出可靠答案",
 )
 
 
