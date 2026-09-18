@@ -169,11 +169,7 @@ def build_retriever(
     ``collection_name`` bypasses the alias pointer, which is how the
     retraining updater scores a candidate collection before promoting it.
     """
-    model = (
-        config.local_embedding_model
-        if config.embedding_provider == "local"
-        else "hash"
-    )
+    model = config.retrieval_model_name
     try:
         retriever = ChromaRetriever(
             model,
@@ -326,11 +322,7 @@ def evaluate(
         "dataset_summary": dataset_summary(items),
         "stages": list(stages),
         "environment": {
-            "embedding_model": (
-                config.local_embedding_model
-                if config.embedding_provider == "local"
-                else "hash"
-            ),
+            "embedding_model": config.retrieval_model_name,
             "collection": retriever.collection_name if retriever else None,
             "indexed_chunks": retriever.count if retriever else 0,
             "bm25_available": bool(retriever and retriever.bm25),

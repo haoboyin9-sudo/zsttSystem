@@ -39,37 +39,86 @@ def _hash_embedding(text: str, dimensions: int = 384) -> np.ndarray:
 
 
 class TextEncoder:
-    """Encode text with SentenceTransformer or deterministic hash mode."""
+    """Encode text with SentenceTransformer, an OpenAI-compatible API, or hash mode.
+
+    ``model_name == "hash"`` selects the deterministic encoder; otherwise the
+    backend follows ``EMBEDDING_PROVIDER`` (``local`` or ``api``).
+    """
+
+    API_BATCH_SIZE = 64
 
     def __init__(self, model_name: str, dimensions: int = 384):
         self.model_name = model_name
         self.dimensions = dimensions
         self._model = None
-        if model_name != "hash":
-            try:
-                from sentence_transformers import SentenceTransformer
+        self._api_client = None
+        if model_name == "hash":
+            return
+        if config.embedding_provider == "api":
+            self._init_api()
+        else:
+            self._init_local(model_name)
 
-                self._model = SentenceTransformer(model_name)
-                if hasattr(self._model, "get_embedding_dimension"):
-                    self.dimensions = self._model.get_embedding_dimension()
-                else:
-                    self.dimensions = (
-                        self._model.get_sentence_embedding_dimension()
-                    )
-            except Exception as exc:
-                raise RuntimeError(
-                    f"embedding model unavailable: {model_name}"
-                ) from exc
+    def _init_local(self, model_name: str) -> None:
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            self._model = SentenceTransformer(model_name)
+            if hasattr(self._model, "get_embedding_dimension"):
+                self.dimensions = self._model.get_embedding_dimension()
+            else:
+                self.dimensions = (
+                    self._model.get_sentence_embedding_dimension()
+                )
+        except Exception as exc:
+            raise RuntimeError(
+                f"embedding model unavailable: {model_name}"
+            ) from exc
+
+    def _init_api(self) -> None:
+        if not config.embedding_api_key:
+            raise RuntimeError(
+                "EMBEDDING_API_KEY is required when EMBEDDING_PROVIDER=api"
+            )
+        try:
+            from openai import OpenAI
+
+            self._api_client = OpenAI(
+                api_key=config.embedding_api_key,
+                base_url=config.embedding_base_url or None,
+            )
+            # Probe once so the index metadata records the real dimension.
+            self.dimensions = int(self._api_encode(["dimension probe"]).shape[1])
+        except Exception as exc:
+            raise RuntimeError(
+                f"embedding API unavailable: {self.model_name}"
+            ) from exc
+
+    def _api_encode(self, values: list[str]) -> np.ndarray:
+        rows: list[list[float]] = []
+        for start in range(0, len(values), self.API_BATCH_SIZE):
+            batch = values[start : start + self.API_BATCH_SIZE]
+            response = self._api_client.embeddings.create(
+                model=self.model_name,
+                input=batch,
+            )
+            rows.extend(item.embedding for item in response.data)
+        matrix = np.asarray(rows, dtype=np.float32)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return matrix / norms
 
     def encode(self, texts: Iterable[str]) -> np.ndarray:
         values = list(texts)
+        if not values:
+            return np.empty((0, self.dimensions), dtype=np.float32)
         if self._model is not None:
             return np.asarray(
                 self._model.encode(values, normalize_embeddings=True),
                 dtype=np.float32,
             )
-        if not values:
-            return np.empty((0, self.dimensions), dtype=np.float32)
+        if self._api_client is not None:
+            return self._api_encode(values)
         return np.vstack(
             [_hash_embedding(text, self.dimensions) for text in values]
         )

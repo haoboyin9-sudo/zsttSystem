@@ -162,11 +162,7 @@ class RetrainingUpdater:
         if source_path is None:
             return None
         chunks = json.loads(source_path.read_text(encoding="utf-8"))
-        model_name = (
-            config.local_embedding_model
-            if config.embedding_provider == "local"
-            else "hash"
-        )
+        model_name = config.retrieval_model_name
         client = None
         existing: list[str] = []
         try:

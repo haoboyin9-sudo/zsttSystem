@@ -42,7 +42,7 @@ if [[ "$MODE" == "docker" ]]; then
 fi
 
 if [[ ! -x .venv/bin/python ]]; then
-  echo "missing .venv -- run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+  echo "missing .venv -- run: python3 -m venv .venv && .venv/bin/pip install -r requirements-local-embedding.txt" >&2
   exit 1
 fi
 PYTHON=.venv/bin/python

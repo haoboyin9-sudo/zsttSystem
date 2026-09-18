@@ -1,0 +1,4 @@
+# Only needed when EMBEDDING_PROVIDER=local (pulls in torch, ~2 GB).
+# API and hash modes work with requirements.txt alone.
+-r requirements.txt
+sentence-transformers==5.5.1

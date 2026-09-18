@@ -11,7 +11,6 @@ from hashlib import md5
 from typing import Any
 
 from openai import OpenAI
-from sentence_transformers import SentenceTransformer
 
 from src.config import config
 
@@ -253,8 +252,14 @@ def generate_json_value(
 
 
 @lru_cache(maxsize=1)
-def _load_local_embedding_model(model_name: str) -> SentenceTransformer:
-    """Load and cache the local sentence-transformers model."""
+def _load_local_embedding_model(model_name: str) -> Any:
+    """Load and cache the local sentence-transformers model.
+
+    Imported lazily so that ``api`` and ``hash`` deployments do not need the
+    sentence-transformers / torch stack installed at all.
+    """
+    from sentence_transformers import SentenceTransformer
+
     return SentenceTransformer(model_name)
 
 

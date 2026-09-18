@@ -88,7 +88,8 @@ GET /courses/{course_code}/dependencies?depth=2&program_name=信息管理与信�
 
 ```bash
 python -m venv .venv && source .venv/bin/activate    # Windows: .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-local-embedding.txt   # 本地 embedding（含 torch）
+# 若使用 EMBEDDING_PROVIDER=api / hash，只需: python -m pip install -r requirements.txt
 cp .env.example .env                                  # Windows: copy .env.example .env
 
 docker compose up -d --wait chromadb neo4j            # 只监听本机
@@ -454,15 +455,18 @@ docker compose logs neo4j
 <details>
 <summary>Embedding 模型无法下载</summary>
 
-首次构建需要下载 `.env` 中配置的 SentenceTransformer 模型。可提前缓存，或在测试环境
-设置 `EMBEDDING_PROVIDER=hash`。**Hash 模式仅用于测试，不可用于正式检索。**
+首次构建需要下载 `.env` 中配置的 SentenceTransformer 模型。可提前缓存，或改用
+`EMBEDDING_PROVIDER=api`（配置 `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL`，
+走 OpenAI 兼容的 `/embeddings` 接口），或在测试环境设置 `EMBEDDING_PROVIDER=hash`。
+**Hash 模式仅用于测试，不可用于正式检索。** 切换 provider 或模型后必须重跑
+`python run_pipeline.py --stage embed` 重建索引，否则检索会因模型名不一致而拒绝连接。
 
 </details>
 
 ### 技术栈
 
 - **Web：** FastAPI（查询、课程、依赖、反馈与管理接口）
-- **向量：** ChromaDB，`zstt_chunks` collection，SentenceTransformer 本地嵌入
+- **向量：** ChromaDB，`zstt_chunks` collection，SentenceTransformer 本地嵌入或 OpenAI 兼容 API 嵌入
 - **图：** Neo4j Community，`ZSTT_*` 标签命名空间
 - **词面：** 自建 BM25（Robertson IDF，离线统计），rapidfuzz 无关
 - **生成与校验：** DeepSeek 或任意 OpenAI Chat Completions 兼容模型

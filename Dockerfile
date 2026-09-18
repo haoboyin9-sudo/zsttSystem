@@ -15,8 +15,11 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Dependencies first so that source edits do not invalidate the wheel layer.
-COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# EMBEDDING_REQUIREMENTS=requirements.txt builds a slim image for
+# EMBEDDING_PROVIDER=api deployments (no torch / sentence-transformers).
+ARG EMBEDDING_REQUIREMENTS=requirements-local-embedding.txt
+COPY requirements.txt requirements-local-embedding.txt ./
+RUN pip install --upgrade pip && pip install -r ${EMBEDDING_REQUIREMENTS}
 
 COPY src ./src
 COPY maintenance ./maintenance

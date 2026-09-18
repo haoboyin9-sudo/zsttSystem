@@ -73,6 +73,16 @@ class Config:
     def embedding_base_url(self) -> str:
         return os.getenv("EMBEDDING_BASE_URL", "").strip()
 
+    @property
+    def retrieval_model_name(self) -> str:
+        """Model name recorded in the vector index and used for query encoding."""
+        provider = self.embedding_provider
+        if provider == "local":
+            return self.local_embedding_model
+        if provider == "api":
+            return self.embedding_model
+        return "hash"
+
     # -- Neo4j ---------------------------------------------------------------
     @property
     def neo4j_uri(self) -> str:

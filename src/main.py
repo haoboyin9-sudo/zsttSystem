@@ -113,11 +113,7 @@ async def lifespan(app: FastAPI):
         )
 
     # Query router
-    retrieval_model = (
-        config.local_embedding_model
-        if config.embedding_provider == "local"
-        else "hash"
-    )
+    retrieval_model = config.retrieval_model_name
     vector_retriever = ChromaRetriever(retrieval_model)
     router = QueryRouter(vector_retriever)
 
@@ -506,11 +502,7 @@ def _run_reindex(app: FastAPI) -> None:
         run_embed_stage()
         stages.append("embed")
 
-        retrieval_model = (
-            config.local_embedding_model
-            if config.embedding_provider == "local"
-            else "hash"
-        )
+        retrieval_model = config.retrieval_model_name
         retriever = ChromaRetriever(retrieval_model)
         router: QueryRouter = app.state.router
         app.state.vector_retriever = retriever

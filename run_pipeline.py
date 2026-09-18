@@ -228,11 +228,7 @@ def run_embed_stage() -> None:
     summary = build_index(
         chunks,
         OUTPUT_DIR,
-        model_name=(
-            config.local_embedding_model
-            if config.embedding_provider == "local"
-            else "hash"
-        ),
+        model_name=config.retrieval_model_name,
         dimensions=config.simple_embedding_dimensions,
     )
     print(
