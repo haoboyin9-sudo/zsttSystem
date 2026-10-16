@@ -361,3 +361,199 @@ def render_metric_table(report: Mapping[str, Any], title: str) -> str:
             continue
         lines.append(f"| {key} | {value} |")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# M5.2 结构类指标：章节覆盖率 / 顺序正确率
+# ---------------------------------------------------------------------------
+
+#: 章节标题模糊匹配时取标题前 N 个字（改动时需同步论文口径）。
+CHAPTER_TITLE_MATCH_CHARS = 8
+
+
+def _compact(text: Any) -> str:
+    """去掉全部空白，让「第 3 章」与「第3章」能够互相匹配。"""
+    return "".join(str(text or "").split())
+
+
+def _title_key(title: str, match_chars: int) -> str:
+    return _compact(title)[:match_chars]
+
+
+def _title_first_position(answer: str, title: str, match_chars: int) -> int | None:
+    key = _title_key(title, match_chars)
+    if not key:
+        return None
+    position = answer.find(key)
+    return position if position >= 0 else None
+
+
+def chapter_coverage(
+    answer: str,
+    chapter_titles: Sequence[str],
+    *,
+    match_chars: int = CHAPTER_TITLE_MATCH_CHARS,
+) -> float | None:
+    """答案命中的章节标题数 / 金标章节总数（模糊匹配标题前 ``match_chars`` 字）。
+
+    没有章节金标时返回 ``None``，让这条题不参与平均。
+    """
+    titles = [str(title) for title in chapter_titles if _compact(title)]
+    if not titles:
+        return None
+    text = _compact(answer)
+    hit = sum(
+        1 for title in titles if _title_first_position(text, title, match_chars) is not None
+    )
+    return round(hit / len(titles), 4)
+
+
+def chapter_order_correct(
+    answer: str,
+    chapter_titles: Sequence[str],
+    *,
+    match_chars: int = CHAPTER_TITLE_MATCH_CHARS,
+) -> bool | None:
+    """答案中章节出现顺序是否与文档树一致（Kendall τ = 1 记为正确）。
+
+    少于两个可定位章节时无法判断，返回 ``None``；重复命中同一位置也判为错。
+    """
+    titles = [str(title) for title in chapter_titles if _compact(title)]
+    if len(titles) < 2:
+        return None
+    text = _compact(answer)
+    found: list[tuple[int, int]] = []
+    for index, title in enumerate(titles):
+        position = _title_first_position(text, title, match_chars)
+        if position is not None:
+            found.append((position, index))
+    if len(found) < 2:
+        return None
+    found.sort()
+    order = [index for _, index in found]
+    return order == sorted(order) and len(order) == len(set(order))
+
+
+def structure_report(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """structure 子集的章节覆盖率与顺序正确率（逐题字段由 run_eval 填充）。"""
+    coverages = [
+        float(item["chapter_coverage"])
+        for item in results
+        if item.get("chapter_coverage") is not None
+    ]
+    orders = [
+        bool(item["order_correct"])
+        for item in results
+        if item.get("order_correct") is not None
+    ]
+    report: dict[str, Any] = {"coverage_items": len(coverages)}
+    if coverages:
+        report["chapter_coverage"] = round(sum(coverages) / len(coverages), 4)
+    report["order_items"] = len(orders)
+    if orders:
+        report["order_correct_rate"] = round(
+            sum(1 for value in orders if value) / len(orders), 4
+        )
+    return report
+
+
+# ---------------------------------------------------------------------------
+# M5.2 教师字段准确率
+# ---------------------------------------------------------------------------
+
+def instructor_set_correct(
+    answer: str,
+    expected_instructors: Sequence[str],
+    *,
+    known_names: Sequence[str] = (),
+) -> bool | None:
+    """教师姓名集合是否与金标完全一致。
+
+    传入 ``known_names``（全数据集出现过的教师姓名池）时做真正的集合相等：
+    答案里出现池中任何非金标姓名都算错。否则退化为「金标姓名全部命中」。
+    """
+    expected = {_compact(name) for name in expected_instructors if _compact(name)}
+    if not expected:
+        return None
+    text = _compact(answer)
+    pool = {
+        _compact(name)
+        for name in (known_names or expected_instructors)
+        if _compact(name)
+    }
+    appeared = {name for name in pool if name in text}
+    if known_names:
+        return appeared == expected
+    return expected <= appeared
+
+
+def instructor_report(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """教师字段准确率；「未记录」题（两源都缺）单独统计拒答率。"""
+    scored = [item for item in results if item.get("instructor_correct") is not None]
+    missing = [
+        item
+        for item in results
+        if "instructor-missing" in str(item.get("subset") or "")
+    ]
+    report: dict[str, Any] = {"instructor_items": len(scored)}
+    if scored:
+        report["instructor_accuracy"] = round(
+            sum(1 for item in scored if item["instructor_correct"]) / len(scored), 4
+        )
+    report["instructor_missing_items"] = len(missing)
+    if missing:
+        report["instructor_missing_refusal_rate"] = round(
+            sum(1 for item in missing if item.get("refused")) / len(missing), 4
+        )
+    return report
+
+
+# ---------------------------------------------------------------------------
+# M5.2 拒答按子集切片
+# ---------------------------------------------------------------------------
+
+def refusal_report_by_subset(
+    results: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """把拒答指标按子集切片，避免 structure 高分掩盖 content 的变化。"""
+    groups: dict[str, list[Mapping[str, Any]]] = {}
+    for item in results:
+        subset = str(item.get("subset") or "")
+        if subset:
+            groups.setdefault(subset, []).append(item)
+    return {subset: refusal_report(items) for subset, items in sorted(groups.items())}
+
+
+# ---------------------------------------------------------------------------
+# P0-5 NLI 归因：概括句非蕴含 / 有矛盾 / 判官 Unknown
+# ---------------------------------------------------------------------------
+
+def nli_attribution(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """按主导原因归类 NLI 校验结果。
+
+    优先级：有矛盾 > 判官 Unknown > 概括句被判非蕴含 > 全部蕴含。
+    每条结果需带 ``nli_details``（由 run_eval ``--dump-nli`` 填充）。
+    """
+    buckets = {
+        "contradiction": 0,
+        "unknown": 0,
+        "non_entailment": 0,
+        "all_entailed": 0,
+        "no_details": 0,
+    }
+    for item in results:
+        details = item.get("nli_details") or []
+        labels = [str(entry.get("label", "")) for entry in details if isinstance(entry, Mapping)]
+        if not labels:
+            buckets["no_details"] += 1
+            continue
+        if "Contradiction" in labels:
+            buckets["contradiction"] += 1
+        elif "Unknown" in labels:
+            buckets["unknown"] += 1
+        elif any(label != "Entailment" for label in labels):
+            buckets["non_entailment"] += 1
+        else:
+            buckets["all_entailed"] += 1
+    buckets["total_items"] = len(results)
+    return buckets
