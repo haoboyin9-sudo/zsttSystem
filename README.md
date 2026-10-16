@@ -157,6 +157,9 @@ Markdown 表格）。
 
 **口径说明**：145 条检索金标全部是课程级（`chunk_level_items: 0`），Recall@5 = 0.91
 的含义是「正确的课进了前 5」，不是「正确的片段进了前 5」。chunk 级金标尚未标注。
+其中 chunk 级金标已可由文档树自动生成：`python eval/build_seed_dataset.py` 会从
+`outputs/doc_tree.json` 派生 `structure-chapter` / `structure-outline` 两个子集
+（真实语料下共 85 条 chunk 级金标），把上面这个口径缺口补上。
 
 ### 它分得清吗
 
@@ -284,6 +287,44 @@ FastAPI → QueryRouter → ChromaDB / Neo4j → DeepSeek
 
 未识别到明确课程时会提高相关度要求，避免把弱相关课程强行当作答案。
 
+### 结构感知检索（大创改造 P0–P2）
+
+解析层从「一个 `current_title` + 布尔 `_is_heading()`」改成「标题层级栈 + 文档内序号」，
+并新增两份额外产物：
+
+| 产物 | 内容 | 用途 |
+| --- | --- | --- |
+| `outputs/doc_tree.json` | 每份大纲的章节树（`kind=chapter` 的父块按章号合并连续进度表行） | `structure` 路由的确定性回答、small-to-big 父块、完备性自检 |
+| `outputs/syllabus_profiles.json` | 大纲「课程基本信息」的结构化字段（`键：值` 规则抽取，不调 LLM） | fact 路径的任课教师 / 考核方式 / 学分学时 |
+
+每个大纲 chunk 新增 `chunk_index` / `heading_path` / `breadcrumb` / `parent_id` /
+`chapter_no` / `is_header` / `prev_chunk_id` / `next_chunk_id`。`breadcrumb` 会进
+`embedding_text`（`EMBEDDING_BREADCRUMB=auto` 时只对 512 token 的模型开启，避免挤掉
+MiniLM 的 128 token 窗口）；`text` 原文不变，引用与 NLI 上下文不受影响。
+
+问题涉及章节时走 `structure` 路由：课程识别到就由文档树**确定性**作答（不调 LLM、不过
+NLI），「第 99 章」这类不存在的章节照旧拒答；识别不到课程则退回 content 路径。检索侧证据
+**先按相关度选定、再按原文顺序排列**；「整门课讲什么」这类问题还会做确定性完备性检查
+（缺失章节补标题行，metadata 里给 `chapter_coverage: "8/8"`）。
+
+召回层新增内存 BM25 倒排 + RRF 融合，默认仍是 `RETRIEVAL_FUSION=linear`（行为与改造前
+一致），`rrf` / `dense` / `bm25` 供消融对照。
+
+| 新配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `RETRIEVAL_FUSION` | `linear` | `linear` / `rrf` / `dense` / `bm25` |
+| `GENERATION_MAX_TOKENS_CONTENT` | `1024` | content / hybrid 路由的答案长度（fact 等仍 512） |
+| `EMBEDDING_BREADCRUMB` | `auto` | `auto` / `on` / `off` |
+| `CHUNKER_HIERARCHY` | `on` | A1 消融：`off` 退回改造前的单层标题判定 |
+| `EVIDENCE_SMALL_TO_BIG` | `on` | A3 消融：`off` 只用行级证据 |
+| `EVIDENCE_ORDER` | `original` | A4 消融：`score` 按相关度分数排序 |
+| `STRUCTURE_MODE` | `deterministic` | A6 消融：`llm` 退回生成式回答 |
+
+重建索引前**必须重跑解析阶段**：新切分会让 `chunk_id` 全量变化，
+`maintenance/retraining_updater.py --remap-chunk-ids` 用 `(source_file, 文本哈希)`
+做旧→新映射，映射不上的样本标记为 `stale` 而不是静默丢弃。`/health` 增加
+`doc_tree_version` 与 `doc_tree.stale`（文档树比向量库旧时为 true）。
+
 ### 生成与引用
 
 生成器接收结构化证据项，回答顺序固定为：直接回答问题 → 列出核心内容 → 列出资料来源。
@@ -378,7 +419,10 @@ python run_pipeline.py --stage parse --force         # 强制全量
 
 ```bash
 python eval/run_eval.py                      # 索引就绪后跑全量三阶段
+python eval/run_eval.py --dump-nli            # 额外导出 NLI 逐 claim 归因（默认关闭）
 python eval/ablation.py --with-answers       # 检索消融
+python eval/ablation.py --list               # 查看 A1–A7 对照臂
+python eval/ablation.py --env-arms A1,A3,A4,A5,A6   # 跑大创改造的结构/证据/融合消融
 python eval/tune_rerank.py                   # 重排权重网格搜索
 python eval/persona_overlap.py               # 角色检索差异
 python eval/concept_eval.py --make-template  # 概念抽取金标模板

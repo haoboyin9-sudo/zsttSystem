@@ -250,3 +250,54 @@ python eval/tune_rerank.py --metric recall@5
 python eval/persona_overlap.py --top-k 5
 python eval/concept_eval.py --make-template --courses 20   # 标注后再跑 concept_eval.py
 ```
+
+## 十一、大创改造 P0–P2 落地记录（结构感知检索与单点事实补全）
+
+对照 `大创改造方案.md` 的 P0 / P1 / P2 三个阶段。改造前的两个症状在代码里都能定位到
+具体病根（编号沿用方案文档）：D1 标题识别把编号列表项当标题、不认「一、」、没有层级栈；
+D3/D4 证据按相关度排序进 prompt、进度表按行切且只取 10 条；D6 任课教师只读培养方案的
+「课程负责人」列且把 `/` 当答案；D8 BM25 只在候选内线性加权。
+
+### 改了什么
+
+| 层 | 文件 | 内容 |
+| --- | --- | --- |
+| 解析 | `src/data_processing/parser_chunker.py` | `_heading_level()`（Word 样式 / `一、` / `（一）` / `第3章` / `3.2` / 短编号列表项）+ 标题栈；chunk 新增 `chunk_index`/`heading_path`/`breadcrumb`/`parent_id`/`chapter_no`/`is_header`/`prev`/`next`；进度表模板括注与长表头剥离；实习类模板映射；`parse_basic_info()` / `collect_syllabus_profile()` 规则抽取 |
+| 结构 | `src/data_processing/doc_tree.py`、`src/online_service/doc_tree.py` | `doc_tree.json` 构建（连续同章号行合并为 `kind=chapter` 父块）与 `DocTree` 查询（`outline`/`chapter`/`parent_block`/`neighbors`/`order_key`/`header_chunks`），缺失产物时全部优雅退化 |
+| 索引 | `src/data_processing/chroma_index.py`、`concept_normalizer.py` | metadata 白名单加新标量；`embedding_text` = 面包屑 + 文本，与概念阶段叠加而非互相覆盖 |
+| 路由 | `src/online_service/query_router.py` | `_is_missing()` 统一判空；fact 字段扩展与任课教师三分支策略；D7 漏洞（已识别课程退回全库检索）改为按 `course_code` + 目标 section_type 定向检索；`QueryType.STRUCTURE` 与文档树确定性回答；small-to-big、头部块直通、完备性检查、先选后排 |
+| 生成 | `src/online_service/generator.py` | 按路由取 `max_output_tokens`（content 1024）；证据格式加面包屑与「原文位置：第 i / n 段」；prompt 补「不得合并或跳过证据中出现的章节」 |
+| 召回 | `src/utils/lexical.py`、`src/online_service/chroma_retriever.py` | 内存 BM25 倒排（独立全库召回）+ RRF 融合；`RETRIEVAL_FUSION=linear\|rrf\|dense\|bm25`，默认 `linear` 保持行为不变 |
+| 管线 | `run_pipeline.py`、`src/main.py`、`maintenance/retraining_updater.py` | 写 `doc_tree.json` / `syllabus_profiles.json` 并原子替换；增量解析同步；热重建回调刷新 `DocTree` 与倒排；`/health` 加文档树版本与 stale 判定；chunk_id 旧→新映射（失败标记 `stale`） |
+| 评测 | `eval/*` | 6 个新子集（structure-chapter / structure-outline / fact-instructor-syllabus / fact-instructor-missing / fact-assessment / noanswer-chapter）、章节覆盖率与顺序正确率等新指标、`--dump-nli`、A1–A7 对照臂 |
+
+### 真实语料核对的数字
+
+- 解析：103 份大纲 → 2874 chunk（改造前 2677 / 大纲 2262），文档树 847 个 chapter 节点，
+  `non_chapter_rows` 为「期末考核 / 期末考查 / 复习」这类非章节行；冻结字段 0 缺失。
+- 结构化：101 份画像，`assessment_mode` / `grading_mode` 101 份齐全，`course_owner` 89、
+  `lecturers` 5、`credits`/`hours` 94。
+- 任课教师：培养方案负责人为 `/` 或空的课程仍是 **34 门**，其中 **13 门**可由大纲补回
+  —— 与方案附录 A 的实测数字一致。
+- 结构问答（真实文档树 + 真实 `courses.json`）：「第三章讲什么」返回该章节 + 节 + 内容 +
+  学时 + 周次 + 资料来源；「一共有几章」返回有序目录且 `chapter_coverage = 11/11`；
+  「第 99 章」走既有拒答文案。
+- 测试：`pytest -q` → **286 passed**（改造前 249 项基线 + 37 项新增；`tests/test_api_hardening.py`
+  与 `test_data_import.py` 在本机沙箱内会因 seccomp 禁止 `socket.send` 卡住，属环境问题，
+  沙箱外通过）。
+
+### 复现
+
+```bash
+python run_pipeline.py --stage parse      # 产出 chunks.json / doc_tree.json / syllabus_profiles.json
+python eval/build_seed_dataset.py         # 追加 structure-* / fact-instructor-* / noanswer-chapter 子集
+python eval/run_eval.py --tag post-p0-p2  # 新指标 + 按子集切片的拒答四项
+python eval/ablation.py --env-arms A1,A2,A3,A4,A5,A6
+```
+
+### 本次未做（方案里标注为 P3 或可选）
+
+- Neo4j 文档树镜像（M7）、语义路由兜底（M8）、Cross-Encoder 重排（A7）——P3，未动。
+- M3.2 的 LLM 兜底抽取：只对没有基本信息表的 7 份实习类大纲有意义，交给解析层的规则 +
+  `实习的性质 → basic_info` 映射覆盖，未接 LLM（保持离线可复现）。
+- `persona=student` 时在确定性答案后再调一次 LLM 概括（方案标注可选）。
