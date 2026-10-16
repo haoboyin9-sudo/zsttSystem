@@ -11,7 +11,7 @@ import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
@@ -49,34 +49,332 @@ CONCEPT_SECTION_TYPES = {
     "teaching_schedule",
 }
 
+# 培养方案与大纲同义字段的对应关系（规范字段 -> courses.json 字段），
+# 用于 M3.3 的冲突比对；不在表内的字段不参与冲突判定。
+_PROFILE_PLAN_FIELDS = {
+    "credits": "credits",
+    "hours": "hours",
+    "course_owner": "instructor",
+}
+
+# 视为「培养方案没写」的占位值，不参与冲突判定。
+_MISSING_VALUES = {"", "/", "-", "—", "－", "无", "暂无", "nan", "none", "null", "n/a"}
+
+
+# ---------------------------------------------------------------------------
+# Derived artifacts: doc_tree.json / syllabus_profiles.json（大创改造 P1-3、P1-4）
+# ---------------------------------------------------------------------------
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    """先写同目录临时文件再 ``replace``，避免在线服务读到半成品产物。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _read_json_or(path: Path, default: Any) -> Any:
+    """容错读取 JSON：文件缺失或损坏时返回 *default*，不打断构建阶段。"""
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _is_missing_value(value: Any) -> bool:
+    """判断培养方案 / 大纲字段是否为空（``/`` 这类占位符也算空）。"""
+    if value is None:
+        return True
+    if isinstance(value, (list, tuple, set, dict)):
+        return not value
+    return str(value).strip().casefold() in _MISSING_VALUES
+
+
+def _values_differ(plan_value: Any, syllabus_value: Any) -> bool:
+    """比较两个字段值：能按数字比较时忽略 ``3`` 与 ``3.0`` 的写法差异。"""
+    try:
+        return float(plan_value) != float(syllabus_value)
+    except (TypeError, ValueError):
+        return str(plan_value).strip() != str(syllabus_value).strip()
+
+
+def _profile_field_value(profile: dict[str, Any], field: str) -> Any:
+    """取画像里的规范字段值，兼容平铺、``fields`` 子字典与 ``{"value": ...}`` 包装。"""
+    for container in (profile, profile.get("fields")):
+        if not isinstance(container, dict) or field not in container:
+            continue
+        value = container[field]
+        if isinstance(value, dict) and "value" in value:
+            return value["value"]
+        return value
+    return None
+
+
+def _profile_conflicts(
+    course: dict[str, Any],
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """列出培养方案与大纲不一致的字段；培养方案值不覆盖，只记录（M3.3）。"""
+    conflicts: list[dict[str, Any]] = []
+    for profile_field, plan_field in _PROFILE_PLAN_FIELDS.items():
+        plan_value = course.get(plan_field)
+        syllabus_value = _profile_field_value(profile, profile_field)
+        if _is_missing_value(plan_value) or _is_missing_value(syllabus_value):
+            continue
+        if _values_differ(plan_value, syllabus_value):
+            conflicts.append(
+                {
+                    "field": profile_field,
+                    "plan_value": plan_value,
+                    "syllabus_value": syllabus_value,
+                }
+            )
+    return conflicts
+
+
+def _write_doc_tree(chunks: list[dict[str, Any]]) -> None:
+    """构建并原子写回 ``doc_tree.json``（M2.1 / M2.2）。
+
+    构建模块（``src.data_processing.doc_tree``）并行开发中，缺失时只告警、
+    保留磁盘上的旧产物，让解析阶段照常完成。
+    """
+    try:
+        from src.data_processing.doc_tree import build_doc_tree
+    except ImportError as exc:  # pragma: no cover - 依赖并行交付
+        print(f"[parsing] 跳过 doc_tree：构建模块不可用（{exc}）")
+        return
+    try:
+        tree = build_doc_tree(chunks)
+    except Exception as exc:  # noqa: BLE001 - 树构建失败不应中断解析
+        print(f"[parsing] doc_tree 构建失败：{type(exc).__name__}: {exc}")
+        return
+    if not isinstance(tree, dict):
+        print("[parsing] doc_tree 构建返回了非 dict，已跳过写盘")
+        return
+    _atomic_write_json(config.doc_tree_path, tree)
+    documents = tree.get("documents")
+    count = len(documents) if isinstance(documents, dict) else 0
+    print(f"[parsing] doc_tree: {count} documents → {config.doc_tree_path}")
+
+
+def _syllabus_groups(
+    chunks: list[dict[str, Any]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """按 ``course_code|source_year`` 归组大纲 chunk，再按来源文件归组。"""
+    grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for chunk in chunks:
+        metadata = chunk.get("metadata") or {}
+        if metadata.get("source_type") != "syllabus":
+            continue
+        course_code = str(
+            metadata.get("course_code") or chunk.get("course_code") or ""
+        ).strip()
+        source_file = str(chunk.get("source_file") or "").strip()
+        if not course_code or not source_file:
+            continue
+        source_year = str(metadata.get("source_year") or "").strip()
+        key = f"{course_code}|{source_year}"
+        grouped.setdefault(key, {}).setdefault(source_file, []).append(chunk)
+    return grouped
+
+
+def _write_syllabus_profiles(
+    chunks: list[dict[str, Any]],
+    *,
+    refresh_keys: set[str] | None = None,
+) -> None:
+    """汇总大纲结构化字段并原子写回 ``syllabus_profiles.json``（M3.1–M3.2）。
+
+    *refresh_keys* 为 ``None`` 时全量重算；否则只重算这些 ``course_code|source_year``
+    键，其余沿用磁盘上的旧记录（增量解析用）。
+    """
+    try:
+        from src.data_processing.parser_chunker import collect_syllabus_profile
+    except ImportError as exc:  # pragma: no cover - 依赖并行交付
+        print(f"[parsing] 跳过 syllabus_profiles：抽取函数不可用（{exc}）")
+        return
+
+    grouped = _syllabus_groups(chunks)
+    if refresh_keys is None:
+        profiles: dict[str, Any] = {}
+        targets = set(grouped)
+    else:
+        existing = _read_json_or(config.syllabus_profiles_path, {})
+        profiles = (
+            {key: value for key, value in existing.items() if key not in refresh_keys}
+            if isinstance(existing, dict)
+            else {}
+        )
+        targets = set(grouped) & set(refresh_keys)
+
+    for key in sorted(targets):
+        for source_file in sorted(grouped[key]):
+            members = grouped[key][source_file]
+            metadata = members[0].get("metadata") or {}
+            course_code, source_year = key.split("|", 1)
+            try:
+                profile = collect_syllabus_profile(
+                    members,
+                    source_file=source_file,
+                    course_code=course_code,
+                    course_name=str(metadata.get("course_name") or ""),
+                    source_year=source_year,
+                )
+            except Exception as exc:  # noqa: BLE001 - 单份大纲失败不影响其余
+                print(
+                    f"[parsing] syllabus_profile 抽取失败 {source_file}："
+                    f"{type(exc).__name__}: {exc}"
+                )
+                continue
+            if not isinstance(profile, dict):
+                continue
+            record = dict(profile)
+            if not record.get("source_file"):
+                record["source_file"] = source_file
+            profiles[key] = record
+
+    _atomic_write_json(config.syllabus_profiles_path, profiles)
+    print(
+        f"[parsing] syllabus profiles: {len(profiles)} 条 → "
+        f"{config.syllabus_profiles_path}"
+    )
+
+
+def _write_parse_artifacts(
+    chunks: list[dict[str, Any]],
+    *,
+    refresh_profile_keys: set[str] | None = None,
+    write_chunks: bool = False,
+) -> None:
+    """在同一次回调里原子替换 chunks.json（可选）、doc_tree.json、syllabus_profiles.json。
+
+    三份产物必须一起刷新：只换其中一份会让在线服务读到「新向量库 + 旧文档树」
+    的半成品状态（§8 风险表）。
+    """
+    if write_chunks:
+        _atomic_write_json(CHUNKS_OUTPUT_PATH, chunks)
+    _write_doc_tree(chunks)
+    _write_syllabus_profiles(chunks, refresh_keys=refresh_profile_keys)
+
+
+def _merge_syllabus_profiles_into_courses(courses_path: Path) -> None:
+    """把大纲画像合并进 ``courses.json``（M3.3），保持其余字段原样。
+
+    每门课新增 ``syllabus_profile``；与培养方案冲突时**不覆盖**培养方案值，
+    把 ``[{field, plan_value, syllabus_value}]`` 同时写进 ``syllabus_profile``
+    与课程级 ``conflicts``，回答时可以两者都给并注明来源。同一门课有多份大纲
+    时取 ``course_code|source_year`` 键序最大的那份（即最新学年）。
+    """
+    profiles = _read_json_or(config.syllabus_profiles_path, None)
+    if not isinstance(profiles, dict) or not profiles:
+        return
+    courses = _read_json_or(courses_path, None)
+    if not isinstance(courses, list):
+        return
+
+    by_code: dict[str, dict[str, Any]] = {}
+    for key in sorted(profiles):
+        record = profiles[key]
+        if not isinstance(record, dict):
+            continue
+        course_code = str(record.get("course_code") or key.split("|", 1)[0]).strip()
+        if course_code:
+            by_code[course_code] = record
+
+    merged: list[Any] = []
+    changed = False
+    for course in courses:
+        if not isinstance(course, dict):
+            merged.append(course)
+            continue
+        profile = by_code.get(str(course.get("course_code") or "").strip())
+        if profile is None:
+            merged.append(course)
+            continue
+        conflicts = _profile_conflicts(course, profile)
+        record = dict(profile)
+        record["conflicts"] = conflicts
+        updated = {key: value for key, value in course.items() if key != "conflicts"}
+        updated["syllabus_profile"] = record
+        if conflicts:
+            updated["conflicts"] = conflicts
+        merged.append(updated)
+        changed = True
+
+    if changed:
+        _atomic_write_json(courses_path, merged)
+        print(
+            f"[parsing] syllabus_profile 已合并进 {courses_path.name} "
+            f"（{len(by_code)} 门课）"
+        )
+
+
 
 # ---------------------------------------------------------------------------
 # Stages
 # ---------------------------------------------------------------------------
 
-def run_parsing(*, incremental: bool = False, force: bool = False) -> None:
+def run_parsing(*, incremental: bool = False, force: bool = False) -> bool:
     """Parse XLSX training plans + DOCX syllabi into structured chunks.
 
     When *incremental* is True and *force* is False, only re-parses syllabus
     files whose content has changed (detected via SHA256 manifest).  Chunks
     from unchanged files are preserved from the previous run.
+
+    Returns True when the incremental patch path ran, so the caller knows the
+    derived artifacts were already written inside that callback.
     """
     chunker = SyllabusChunker()
 
     if incremental and not force and CHUNKS_OUTPUT_PATH.exists():
         _incremental_parse(chunker)
-    else:
-        results = chunker.run(
-            plan_dir=TRAINING_PLAN_DIR,
-            syllabus_dir=SYLLABUS_DIR,
-            output_path=CHUNKS_OUTPUT_PATH,
-        )
-        tag = "force" if force else "full"
-        print(f"[parsing] ({tag}) Generated {len(results)} chunks → {CHUNKS_OUTPUT_PATH}")
+        return True
+
+    results = chunker.run(
+        plan_dir=TRAINING_PLAN_DIR,
+        syllabus_dir=SYLLABUS_DIR,
+        output_path=CHUNKS_OUTPUT_PATH,
+    )
+    tag = "force" if force else "full"
+    print(f"[parsing] ({tag}) Generated {len(results)} chunks → {CHUNKS_OUTPUT_PATH}")
+    return False
+
+
+def _pop_chunks_for_file(
+    existing_by_file: dict[str, list[dict]],
+    relative_path: str,
+) -> list[dict]:
+    """取走某个被删除 / 被替换文件对应的旧 chunk。
+
+    ``FileManifest`` 记录的是构造时传入的路径（绝对路径），而 ``chunks.json``
+    里的 ``source_file`` 相对大纲目录，因此除精确匹配外还要兜住后缀匹配，
+    否则被删除文件的 chunk 会一直留在产物里。
+    """
+    if relative_path in existing_by_file:
+        return existing_by_file.pop(relative_path)
+    matched = [
+        key
+        for key in existing_by_file
+        if key.endswith(f"/{relative_path}") or relative_path.endswith(f"/{key}")
+    ]
+    dropped: list[dict] = []
+    for key in matched:
+        dropped.extend(existing_by_file.pop(key))
+    return dropped
+
+
+def _profile_keys_of(chunks: list[dict]) -> set[str]:
+    """这些 chunk 涉及的 ``course_code|source_year`` 画像键（增量重算用）。"""
+    return set(_syllabus_groups(chunks))
 
 
 def _incremental_parse(chunker: SyllabusChunker) -> None:
-    """Detect changed syllabus files and patch chunks.json in-place."""
+    """Detect changed syllabus files and patch the parse artifacts in-place."""
     manifest = FileManifest()
     course_catalog = chunker.parse_training_plans(TRAINING_PLAN_DIR)
     training_plan_chunks = chunker.build_training_plan_chunks(course_catalog)
@@ -99,37 +397,49 @@ def _incremental_parse(chunker: SyllabusChunker) -> None:
         else:
             other_chunks.append(ch)
 
+    # 受影响的 (course_code, source_year) 画像键：这些键的 syllabus_profile 需要重算。
+    affected_profile_keys: set[str] = set()
+
     # Remove chunks from deleted files
     for rel in removed:
-        removed_count = len(existing_by_file.pop(rel, []))
-        print(f"[parsing] (incremental) Removed: {rel} ({removed_count} chunks)")
+        dropped = _pop_chunks_for_file(existing_by_file, rel)
+        affected_profile_keys |= _profile_keys_of(dropped)
+        print(f"[parsing] (incremental) Removed: {rel} ({len(dropped)} chunks)")
 
     # Re-parse changed / added files
     files_to_parse = added + changed
     if files_to_parse:
         for f in files_to_parse:
             rel = str(f.relative_to(SYLLABUS_DIR).as_posix())
+            old_chunks = existing_by_file.get(rel, [])
             new_chunks = chunker.build_syllabus_chunks(
                 f,
                 SYLLABUS_DIR,
                 course_catalog,
             )
 
-            old_count = len(existing_by_file.get(rel, []))
             existing_by_file[rel] = new_chunks
+            affected_profile_keys |= _profile_keys_of(old_chunks)
+            affected_profile_keys |= _profile_keys_of(new_chunks)
             status = "Added" if f in added else "Changed"
-            print(f"[parsing] (incremental) {status}: {rel} "
-                  f"({old_count}→{len(new_chunks)} chunks)")
+            print(
+                f"[parsing] (incremental) {status}: {rel} "
+                f"({len(old_chunks)}→{len(new_chunks)} chunks)"
+            )
 
     # Merge and write
     merged = [*training_plan_chunks, *other_chunks]
     for chunks in existing_by_file.values():
         merged.extend(chunks)
 
-    CHUNKS_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CHUNKS_OUTPUT_PATH.write_text(
-        json.dumps(merged, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    # 增量同步 doc_tree / syllabus_profiles：同样在同一次回调里原子写回。
+    # doc_tree 用「按合并后的 chunks 全量重算」而不是逐个 document_hash 打补丁：
+    # document_hash 由解析层派生、不在冻结接口内，而全量重算只有 2677 条，
+    # 既便宜又天然覆盖「文件被删除」与「内容变化」两种情形（M2.2 允许的退化）。
+    _write_parse_artifacts(
+        merged,
+        refresh_profile_keys=affected_profile_keys,
+        write_chunks=True,
     )
     print(f"[parsing] (incremental) Merged {len(merged)} chunks → {CHUNKS_OUTPUT_PATH}")
 
@@ -243,8 +553,13 @@ def run_embed_stage() -> None:
     )
 
 def run_parse_stage(incremental: bool = False, force: bool = False) -> None:
-    run_parsing(incremental=incremental, force=force)
+    used_incremental = run_parsing(incremental=incremental, force=force)
     chunks = json.loads(CHUNKS_OUTPUT_PATH.read_text(encoding="utf-8"))
+    if not used_incremental:
+        # 增量路径已在 _incremental_parse 内写回这三份产物。
+        # chunks.json 也重写一次：解析器自己的写盘不是原子的，这里用同一次
+        # 回调把四份产物统一成「临时文件 + replace」。
+        _write_parse_artifacts(chunks, write_chunks=True)
     chunker = SyllabusChunker()
     courses = chunker.parse_training_plans(TRAINING_PLAN_DIR)
     unresolved: list[dict] = []
@@ -321,14 +636,11 @@ def run_parse_stage(incremental: bool = False, force: bool = False) -> None:
                     unresolved_keys.add(key)
 
     course_rows = [courses[code] for code in sorted(courses)]
-    (OUTPUT_DIR / "courses.json").write_text(
-        json.dumps(course_rows, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (OUTPUT_DIR / "unresolved_prerequisites.json").write_text(
-        json.dumps(unresolved, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    courses_path = OUTPUT_DIR / "courses.json"
+    _atomic_write_json(courses_path, course_rows)
+    _atomic_write_json(OUTPUT_DIR / "unresolved_prerequisites.json", unresolved)
+    # M3.3：把大纲画像并进 courses.json（不覆盖培养方案值，冲突只记录）。
+    _merge_syllabus_profiles_into_courses(courses_path)
 
 def run_graph_stage(*, concept_stage_succeeded: bool | None = None) -> None:
     """Write a deterministic graph manifest; Neo4j writing remains optional."""

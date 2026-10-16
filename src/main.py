@@ -34,6 +34,10 @@ from neo4j.exceptions import AuthError, Neo4jError, ServiceUnavailable
 from pydantic import BaseModel, Field
 
 from src.config import config
+from src.data_processing.collection_registry import (
+    parse_version,
+    resolve_active_collection,
+)
 from src.online_service.feedback_handler import (
     append_jsonl_record,
     build_feedback_log_record,
@@ -138,6 +142,14 @@ async def lifespan(app: FastAPI):
     app.state.router = router
     app.state.neo4j_driver = neo4j_driver
     app.state.vector_retriever = vector_retriever
+    # 文档树（P1-3）与 BM25 倒排（P2 预留）：缺失 / 未落地时退化为 None，
+    # 服务照常启动，/health 与既有接口不受影响。
+    doc_tree, doc_tree_info = _load_doc_tree()
+    lexical_index = _build_lexical_index()
+    app.state.doc_tree = doc_tree
+    app.state.doc_tree_info = doc_tree_info
+    app.state.lexical_index = lexical_index
+    _attach_live_objects(router, doc_tree, lexical_index)
 
     try:
         yield
@@ -224,6 +236,7 @@ async def healthcheck() -> dict[str, Any]:
     neo4j_driver = getattr(app.state, "neo4j_driver", None)
     chroma_connected = bool(retriever and retriever.connected)
     chunk_count = retriever.count if retriever else 0
+    doc_tree = _doc_tree_health()
     return {
         "status": "ok" if chroma_connected and chunk_count > 0 else "degraded",
         "neo4j": "connected" if neo4j_driver else "unavailable",
@@ -231,6 +244,10 @@ async def healthcheck() -> dict[str, Any]:
         "vector_index": "loaded" if chunk_count > 0 else "empty",
         "embedding_model": "loaded" if chunk_count > 0 else "unavailable",
         "chunk_count": chunk_count,
+        # doc_tree.json 不存在时为 None，但 /health 仍返回 200（§8 风险表）。
+        "doc_tree_version": doc_tree["version"],
+        "doc_tree": doc_tree,
+        "collection": _collection_health(chunk_count),
     }
 
 
@@ -512,11 +529,16 @@ def _run_reindex(app: FastAPI) -> None:
                 config.courses_output_path.read_text(encoding="utf-8")
             )
         stages.append("reload")
+        # 文档树 / 倒排必须和向量库在同一个回调里刷新，否则会长期停在
+        # 「新向量库 + 旧文档树」的错位状态（§8 风险表）。
+        doc_tree_info = _refresh_live_artifacts(app, router)
+        stages.append("doc_tree")
         _REINDEX_STATE.update(
             status="succeeded",
             finished_at=datetime.now(timezone.utc).isoformat(),
             detail=f"索引重建完成，共 {retriever.count} 个片段",
             stages=stages,
+            doc_tree_version=doc_tree_info.get("version"),
         )
     except Exception as exc:  # noqa: BLE001 - reported through the status endpoint
         _REINDEX_STATE.update(
@@ -541,6 +563,187 @@ def _load_json(path: Path, default: Any) -> Any:
             status_code=503,
             detail=f"invalid local data file: {path.name}",
         ) from exc
+
+
+def _safe_load_json(path: Path) -> Any:
+    """只读、容错地读取 JSON；缺失或损坏都返回 None（health 路径不能 500）。"""
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _file_mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _iso_mtime(value: Any) -> str | None:
+    if not isinstance(value, (int, float)):
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+
+
+def _count_tree_chunks(documents: Any) -> int | None:
+    """文档树里引用的 chunk id 总数；结构不符时返回 None。"""
+    if not isinstance(documents, dict):
+        return None
+    total = 0
+    for document in documents.values():
+        if isinstance(document, dict) and isinstance(document.get("chunk_ids"), list):
+            total += len(document["chunk_ids"])
+    return total
+
+
+def _load_doc_tree() -> tuple[Any | None, dict[str, Any]]:
+    """构造 ``DocTree`` 查询对象并读取版本信息（M2.3）。
+
+    查询模块或 ``doc_tree.json`` 缺失时必须退化：构造不抛异常、查询返回空，
+    在线问答与 ``/health`` 都不受影响。
+    """
+    path = config.doc_tree_path
+    raw = _safe_load_json(path)
+    doc_tree = None
+    try:
+        from src.online_service.doc_tree import DocTree
+    except ImportError as exc:  # pragma: no cover - 依赖并行交付
+        print(f"[doc_tree] 查询模块不可用（已退化）：{exc}")
+    else:
+        try:
+            doc_tree = DocTree(path)
+        except Exception as exc:  # noqa: BLE001 - 加载失败只降级，不阻断启动
+            print(f"[doc_tree] 加载失败（已退化）：{type(exc).__name__}: {exc}")
+            doc_tree = None
+    documents = raw.get("documents") if isinstance(raw, dict) else None
+    version = getattr(doc_tree, "version", None)
+    if version is None and isinstance(raw, dict):
+        version = raw.get("version")
+    return doc_tree, {
+        "version": version,
+        "document_count": len(documents) if isinstance(documents, dict) else None,
+        "chunk_count": _count_tree_chunks(documents),
+        "modified_at": _file_mtime(path),
+    }
+
+
+def _build_lexical_index() -> Any | None:
+    """构建 P2 的 BM25 内存倒排（M5.1）。
+
+    ``chunks.json`` 缺失或损坏时返回 ``None``：调用方（lifespan / 重建回调 /
+    ``/health``）都把它当成「可能为空」的对象，检索器自身也会惰性重建一份。
+    """
+    try:
+        from src.data_processing.lexical_stats import load_lexical_stats
+        from src.utils.lexical import build_inverted_index
+    except ImportError as exc:  # pragma: no cover - 依赖并行交付
+        print(f"[lexical] 倒排模块不可用（已退化）：{exc}")
+        return None
+    try:
+        raw = json.loads(config.chunks_output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[lexical] 倒排语料不可用（已退化）：{exc}")
+        return None
+    documents = (
+        [item for item in raw if isinstance(item, dict)]
+        if isinstance(raw, list)
+        else []
+    )
+    if not documents:
+        return None
+    index = build_inverted_index(
+        documents,
+        k1=config.rerank_bm25_k1,
+        b=config.rerank_bm25_b,
+        stats=load_lexical_stats(config.lexical_stats_path),
+    )
+    return index if getattr(index, "usable", False) else None
+
+
+def _attach_live_objects(target: Any, doc_tree: Any, lexical_index: Any) -> None:
+    """把文档树 / 倒排挂到路由层；路由层不允许挂载额外属性时跳过。"""
+    if target is None:
+        return
+    # ``QueryRouter`` 通过 ``set_doc_tree()`` 注入（内部写 ``_doc_tree_override``），
+    # 直接 ``setattr(target, "doc_tree", ...)`` 是读不到的；有 setter 时优先用它，
+    # 否则（例如测试里的 stub router）退回属性挂载。
+    setter = getattr(target, "set_doc_tree", None)
+    if callable(setter):
+        try:
+            setter(doc_tree)
+        except Exception as exc:  # noqa: BLE001 - 路由层实现可能不兼容
+            print(f"[doc_tree] 路由层拒收文档树：{exc}")
+    for attribute, value in (
+        ("doc_tree", doc_tree),
+        ("lexical_index", lexical_index),
+    ):
+        try:
+            setattr(target, attribute, value)
+        except Exception as exc:  # noqa: BLE001 - 路由层实现可能用 __slots__
+            print(f"[doc_tree] 无法把 {attribute} 挂到路由层：{exc}")
+
+
+def _refresh_live_artifacts(app: FastAPI, router: Any | None = None) -> dict[str, Any]:
+    """在重建回调里原子替换 ``DocTree`` 与倒排，使其与向量库同版本。
+
+    先构造好新对象再逐个写 ``app.state``：读者要么全看到旧的一份、要么全看到新
+    的一份，不会读到「新向量库 + 旧文档树」的中间态。
+    """
+    doc_tree, info = _load_doc_tree()
+    lexical_index = _build_lexical_index()
+    app.state.doc_tree = doc_tree
+    app.state.doc_tree_info = info
+    app.state.lexical_index = lexical_index
+    _attach_live_objects(
+        router if router is not None else getattr(app.state, "router", None),
+        doc_tree,
+        lexical_index,
+    )
+    return info
+
+
+def _doc_tree_health() -> dict[str, Any]:
+    """文档树版本 + 与 ``chunks.json`` 的新鲜度比对（缺失时字段为 None）。
+
+    热重建如果漏刷文档树，``stale`` 会是 True，对应 §8「热重建后文档树 /
+    倒排未刷新，与向量库不一致」这条风险，让运维一眼看得出来。
+    """
+    info = getattr(app.state, "doc_tree_info", None)
+    info = info if isinstance(info, dict) else {}
+    modified_at = info.get("modified_at")
+    chunks_mtime = _file_mtime(config.chunks_output_path)
+    stale: bool | None = None
+    if isinstance(modified_at, (int, float)) and chunks_mtime is not None:
+        stale = modified_at < chunks_mtime
+    return {
+        "version": info.get("version"),
+        "documents": info.get("document_count"),
+        "chunk_ids": info.get("chunk_count"),
+        "modified_at": _iso_mtime(modified_at),
+        "stale": stale,
+        "stale_reason": (
+            "doc_tree.json 早于 chunks.json，可能未随上次重建刷新" if stale else None
+        ),
+    }
+
+
+def _collection_health(chunk_count: int) -> dict[str, Any]:
+    """当前服务集合的版本信息，用于和 ``doc_tree_version`` 对照。"""
+    retriever = getattr(app.state, "vector_retriever", None)
+    name = str(getattr(retriever, "collection_name", "") or "").strip()
+    if not name:
+        try:
+            name = resolve_active_collection()
+        except Exception:  # noqa: BLE001 - 别名记录缺失不该影响 /health
+            name = ""
+    return {
+        "name": name or None,
+        "version": parse_version(name) if name else None,
+        "chunk_count": chunk_count,
+    }
 
 
 def _find_course(course_code: str) -> dict[str, Any]:
