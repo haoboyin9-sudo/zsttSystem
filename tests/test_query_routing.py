@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from src.online_service.query_router import (
     LOW_CONFIDENCE_THRESHOLD,
@@ -279,3 +283,52 @@ def test_merged_answer_stays_degraded_when_every_section_failed() -> None:
 
     assert result.metadata["status"] == "degraded"
     assert "partial_status" not in result.metadata
+
+
+# --------------------------------------------------------------------------- #
+# P1-6：structure 路由样本（改造方案 §4 M4.1 / §7）。
+# 只追加，上面既有样本与断言一律不动。
+# --------------------------------------------------------------------------- #
+
+_STRUCTURE_SAMPLES = (
+    "《信息素养与创新思维》第三章讲什么？",
+    "这门课一共几章？",
+    "第 3 周学什么？",
+    "课程的教学进度安排是什么？",
+)
+
+
+def test_structure_samples_route_to_structure() -> None:
+    for query in _STRUCTURE_SAMPLES:
+        assert QueryRouter.classify(query) is QueryType.STRUCTURE, query
+
+
+def test_structure_patterns_do_not_steal_fact_samples() -> None:
+    # 考核方式 / 学分属于 FACT；「第 3 周」这类结构词面不能把它们抢走。
+    assert QueryRouter.classify("这门课的考核方式是什么？") is QueryType.FACT
+    assert QueryRouter.classify("管理运筹学多少学分？") is QueryType.FACT
+
+
+def test_structure_patterns_leave_the_original_170_routes_intact() -> None:
+    """新增 STRUCTURE 不能把原有评测样本抢走（§7「确认原 170 题路由结果不变」）。
+
+    ``gold_seed.json`` 是 ``eval/`` 的产物，不进仓库时跳过；只要存在就断言：
+    没有任何 expected_route ≠ structure 的样本被新结构词面劫持到 structure。
+    """
+    dataset = (
+        Path(__file__).resolve().parents[1]
+        / "eval"
+        / "datasets"
+        / "gold_seed.json"
+    )
+    if not dataset.is_file():
+        pytest.skip("gold_seed.json 不随仓库分发")
+
+    items = json.loads(dataset.read_text(encoding="utf-8"))["items"]
+    stolen = [
+        item["id"]
+        for item in items
+        if QueryRouter.classify(item["question"]) is QueryType.STRUCTURE
+        and item.get("expected_route") != "structure"
+    ]
+    assert stolen == []

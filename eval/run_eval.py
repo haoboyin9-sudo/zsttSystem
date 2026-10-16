@@ -41,7 +41,7 @@ from src.config import config  # noqa: E402
 from src.online_service.chroma_retriever import ChromaRetriever, RerankWeights  # noqa: E402
 from src.online_service.query_router import QueryRouter  # noqa: E402
 
-ROUTE_LABELS = ("fact", "content", "dependency", "catalog", "hybrid")
+ROUTE_LABELS = ("fact", "content", "dependency", "catalog", "hybrid", "structure")
 DEFAULT_STAGES = ("routing", "retrieval", "answer")
 
 
@@ -112,6 +112,37 @@ def grade_retrieval(
     return {"report": metrics.retrieval_report(results), "results": results}
 
 
+def _nli_claim_rows(route_result: Any) -> dict[str, Any]:
+    """把一条回答的 NLI 校验明细整理成可导出的 claim 列表。
+
+    每条 claim 记录 verdict / 相似度 / 是否被保留；保留规则与
+    ``generator._retain_entailed_claims`` 一致：出现矛盾则整题拒答（全部不保留），
+    否则只保留判为 ``Entailment`` 的句子。
+    """
+    metadata = getattr(route_result, "metadata", None) or {}
+    details = metadata.get("nli_details") or []
+    has_contradiction = any(
+        isinstance(entry, dict) and str(entry.get("label")) == "Contradiction"
+        for entry in details
+    )
+    claims = [
+        {
+            "sentence": str(entry.get("sentence", "")),
+            "verdict": str(entry.get("label", "")),
+            "score": entry.get("score"),
+            "retained": (not has_contradiction) and str(entry.get("label")) == "Entailment",
+        }
+        for entry in details
+        if isinstance(entry, dict)
+    ]
+    return {
+        "nli_status": metadata.get("nli_status", "skipped"),
+        "nli_verified": metadata.get("nli_verified"),
+        "nli_attempts": metadata.get("nli_attempts", 0),
+        "nli_details": claims,
+    }
+
+
 async def grade_answers(
     items: Sequence[GoldItem],
     router: QueryRouter,
@@ -119,6 +150,8 @@ async def grade_answers(
     llm_client: Any = None,
     neo4j_driver: Any = None,
     persona: str | None = None,
+    dump_nli: bool = False,
+    known_instructor_names: Sequence[str] = (),
 ) -> dict[str, Any]:
     results = []
     for item in items:
@@ -131,23 +164,37 @@ async def grade_answers(
         )
         answer = route_result.answer or ""
         refused = metrics.is_refusal(answer)
-        results.append(
-            {
-                "id": item.id,
-                "answerable": item.answerable,
-                "answer_keys": item.answer_keys,
-                "route": route_result.query_type,
-                "refused": refused,
-                "answer_correct": metrics.answer_covers_keys(answer, item.answer_keys),
-                "citation_count": len(route_result.citations),
-                "citation_precision": metrics.citation_precision(
-                    route_result.citations,
-                    gold_chunk_ids=item.gold_chunk_ids,
-                    gold_course_codes=item.gold_course_codes,
-                ),
-                "answer_preview": answer[:160],
-            }
-        )
+        row: dict[str, Any] = {
+            "id": item.id,
+            "subset": item.subset,
+            "answerable": item.answerable,
+            "answer_keys": item.answer_keys,
+            "route": route_result.query_type,
+            "refused": refused,
+            "answer_correct": metrics.answer_covers_keys(answer, item.answer_keys),
+            "citation_count": len(route_result.citations),
+            "citation_precision": metrics.citation_precision(
+                route_result.citations,
+                gold_chunk_ids=item.gold_chunk_ids,
+                gold_course_codes=item.gold_course_codes,
+            ),
+            # M5.2 新指标：章节覆盖率 / 顺序正确率 / 教师字段准确率。
+            "chapter_coverage": metrics.chapter_coverage(
+                answer, item.gold_chapter_titles
+            ),
+            "order_correct": metrics.chapter_order_correct(
+                answer, item.gold_chapter_titles
+            ),
+            "instructor_correct": metrics.instructor_set_correct(
+                answer,
+                item.expected_instructors,
+                known_names=known_instructor_names,
+            ),
+            "answer_preview": answer[:160],
+        }
+        if dump_nli:
+            row.update(_nli_claim_rows(route_result))
+        results.append(row)
     return {
         "generation": metrics.generation_report(results),
         "refusal": metrics.refusal_report(results),
@@ -270,6 +317,35 @@ def render_markdown(report: dict[str, Any]) -> str:
         section = report.get(key)
         if section:
             lines.extend([metrics.render_metric_table(section, title), ""])
+    structure = report.get("structure")
+    if structure:
+        lines.extend([metrics.render_metric_table(structure, "结构（Structure）"), ""])
+    instructor = report.get("instructor")
+    if instructor:
+        lines.extend(
+            [metrics.render_metric_table(instructor, "教师字段（Instructor）"), ""]
+        )
+    refusal_by_subset = report.get("refusal_by_subset")
+    if refusal_by_subset:
+        lines.extend(
+            [
+                "### 拒答（按子集）",
+                "",
+                "| 子集 | 无答案题 | 正确拒答率 | 幻觉率 | 误拒率 |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for subset, section in refusal_by_subset.items():
+            lines.append(
+                f"| `{subset}` | {section.get('unanswerable_items', '-')} | "
+                f"{section.get('correct_refusal_rate', '-')} | "
+                f"{section.get('hallucination_rate', '-')} | "
+                f"{section.get('false_refusal_rate', '-')} |"
+            )
+        lines.append("")
+    nli = report.get("nli_attribution")
+    if nli:
+        lines.extend([metrics.render_metric_table(nli, "NLI 归因（--dump-nli）"), ""])
     return "\n".join(lines)
 
 
@@ -303,9 +379,13 @@ def evaluate(
     use_neo4j: bool = True,
     keep_details: bool = True,
     collection_name: str | None = None,
+    dump_nli: bool = False,
 ) -> dict[str, Any]:
     """Run the requested stages and assemble one report dictionary."""
     stages = tuple(stages)
+    known_instructor_names = sorted(
+        {name for item in items for name in item.expected_instructors if name}
+    )
     retriever = (
         build_retriever(weights, collection_name=collection_name)
         if {"retrieval", "answer"} & set(stages)
@@ -355,10 +435,21 @@ def evaluate(
                     llm_client=llm_client,
                     neo4j_driver=neo4j_driver,
                     persona=persona,
+                    dump_nli=dump_nli,
+                    known_instructor_names=known_instructor_names,
                 )
             )
             report["generation"] = answers["generation"]
             report["refusal"] = answers["refusal"]
+            # M5.2 新指标：拒答按子集切片、章节覆盖/顺序、教师字段准确率。
+            report["refusal_by_subset"] = metrics.refusal_report_by_subset(
+                answers["results"]
+            )
+            report["structure"] = metrics.structure_report(answers["results"])
+            report["instructor"] = metrics.instructor_report(answers["results"])
+            if dump_nli:
+                # P0-5 归因表：只有显式开启 --dump-nli 时才写入报告。
+                report["nli_attribution"] = metrics.nli_attribution(answers["results"])
             if keep_details:
                 report["answer_details"] = answers["results"]
     finally:
@@ -386,6 +477,11 @@ def main() -> None:
     )
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--no-neo4j", action="store_true")
+    parser.add_argument(
+        "--dump-nli",
+        action="store_true",
+        help="导出逐条 claim 的 NLI 明细（verdict/相似度/是否保留）与归因表（默认关闭）",
+    )
     parser.add_argument("--output-dir", default=None)
     arguments = parser.parse_args()
 
@@ -403,6 +499,7 @@ def main() -> None:
         persona=arguments.persona,
         use_llm=not arguments.no_llm,
         use_neo4j=not arguments.no_neo4j,
+        dump_nli=arguments.dump_nli,
     )
     directory = Path(arguments.output_dir) if arguments.output_dir else config.eval_report_dir
     json_path, markdown_path = write_report(report, directory)

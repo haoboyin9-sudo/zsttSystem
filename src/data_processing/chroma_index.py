@@ -158,8 +158,48 @@ def _chunk_id(chunk: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _breadcrumb_enabled() -> bool:
+    """判定本次索引是否需要把面包屑注入向量文本。
+
+    取值来自 ``config.embedding_breadcrumb``：``on`` 始终注入，``off`` 不注入，
+    ``auto`` 仅在向量模型不是 MiniLM 时注入（MiniLM 的 128 token 窗口较小，
+    面包屑会挤占正文，风险见改造方案 §8）。
+    """
+    strategy = str(getattr(config, "embedding_breadcrumb", "auto") or "auto")
+    strategy = strategy.strip().lower()
+    if strategy == "on":
+        return True
+    if strategy == "off":
+        return False
+    model_name = str(getattr(config, "embedding_model", "") or "").lower()
+    return "minilm" not in model_name
+
+
+def build_embedding_text(chunk: dict[str, Any], *, breadcrumb_enabled: bool) -> str:
+    """构造用于向量编码的文本，可选在正文前叠加结构面包屑前缀。
+
+    面包屑只影响 ``embedding_text``；``chunk["text"]`` 始终保留原文，供引用
+    卡片与 NLI 上下文使用。当正文已以该面包屑开头时不重复叠加。
+    """
+    text = str(chunk.get("text", ""))
+    breadcrumb = str(chunk.get("breadcrumb") or "").strip()
+    if not breadcrumb_enabled or not breadcrumb:
+        return text
+    if text.startswith(breadcrumb):
+        return text
+    return f"{breadcrumb}\n{text}"
+
+
 def _chroma_metadata(chunk: dict[str, Any]) -> dict[str, str | int | float | bool]:
     domain_metadata = chunk.get("metadata") or {}
+
+    # 列表 / 长文本字段不适合放进 Chroma 标量 metadata，统一并入 metadata_json
+    metadata_payload = dict(domain_metadata)
+    for field in ("heading_path", "breadcrumb"):
+        value = chunk.get(field)
+        if value:
+            metadata_payload[field] = value
+
     metadata: dict[str, Any] = {
         "chunk_id": _chunk_id(chunk),
         "course_code": domain_metadata.get("course_code")
@@ -182,8 +222,15 @@ def _chroma_metadata(chunk: dict[str, Any]) -> dict[str, str | int | float | boo
         "section": chunk.get("section")
         or domain_metadata.get("syllabus_section"),
         "source_file": chunk.get("source_file"),
+        # 结构感知新增的标量字段；None 由末尾的标量过滤剔除
+        "chunk_index": chunk.get("chunk_index"),
+        "chapter_no": chunk.get("chapter_no"),
+        "is_header": chunk.get("is_header"),
+        "prev_chunk_id": chunk.get("prev_chunk_id"),
+        "next_chunk_id": chunk.get("next_chunk_id"),
+        "parent_id": chunk.get("parent_id"),
         "metadata_json": json.dumps(
-            domain_metadata,
+            metadata_payload,
             ensure_ascii=False,
             separators=(",", ":"),
         ),
@@ -224,14 +271,25 @@ class ChromaVectorIndex:
             },
         )
 
+        breadcrumb_enabled = _breadcrumb_enabled()
         batch_size = 256
         for start in range(0, len(chunks), batch_size):
             batch = chunks[start : start + batch_size]
             documents = [str(chunk.get("text", "")) for chunk in batch]
-            embedding_inputs = [
-                str(chunk.get("embedding_text") or document)
-                for chunk, document in zip(batch, documents)
-            ]
+            # 概念阶段已运行：embedding_text 已含（面包屑 + 概念增强），直接用；
+            # 概念阶段未运行：此处补上面包屑前缀，保证两条路径语义一致。
+            embedding_inputs = []
+            for chunk, document in zip(batch, documents):
+                existing = chunk.get("embedding_text")
+                if existing:
+                    embedding_inputs.append(str(existing))
+                else:
+                    embedding_inputs.append(
+                        build_embedding_text(
+                            chunk,
+                            breadcrumb_enabled=breadcrumb_enabled,
+                        )
+                    )
             embeddings = self.encoder.encode(embedding_inputs)
             collection.upsert(
                 ids=[_chunk_id(chunk) for chunk in batch],

@@ -146,6 +146,16 @@ class Config:
         return _path(os.getenv("CHUNKS_OUTPUT_PATH", "outputs/chunks.json"))
 
     @property
+    def doc_tree_path(self) -> Path:
+        return _path(os.getenv("DOC_TREE_PATH", "outputs/doc_tree.json"))
+
+    @property
+    def syllabus_profiles_path(self) -> Path:
+        return _path(
+            os.getenv("SYLLABUS_PROFILES_PATH", "outputs/syllabus_profiles.json")
+        )
+
+    @property
     def graph_manifest_path(self) -> Path:
         return _path(os.getenv("GRAPH_MANIFEST_PATH", "outputs/graph_manifest.json"))
 
@@ -264,6 +274,52 @@ class Config:
     def rerank_candidate_multiplier(self) -> int:
         return max(1, int(os.getenv("RERANK_CANDIDATE_MULTIPLIER", "4")))
 
+    # -- 结构感知检索与混合召回（大创改造 P0–P2） ----------------------------
+    @property
+    def retrieval_fusion(self) -> str:
+        """召回融合策略。
+
+        ``linear``（默认，候选内线性加权）/ ``rrf``（dense 与 BM25 独立召回后
+        RRF 融合）/ ``dense``（只用向量一路召回）/ ``bm25``（只用内存倒排召回）。
+        后两者是 M5.3 的 A5 对照臂；未知值统一归一到 ``linear``。
+        """
+        value = os.getenv("RETRIEVAL_FUSION", "linear").strip().lower()
+        return value if value in {"linear", "rrf", "dense", "bm25"} else "linear"
+
+    @property
+    def generation_max_tokens_content(self) -> int:
+        """content / hybrid 路由的答案长度上限；fact 等结构化路由仍用 512。"""
+        return max(256, int(os.getenv("GENERATION_MAX_TOKENS_CONTENT", "1024")))
+
+    @property
+    def embedding_breadcrumb(self) -> str:
+        """面包屑注入向量文本的策略：``auto`` / ``on`` / ``off``。"""
+        value = os.getenv("EMBEDDING_BREADCRUMB", "auto").strip().lower()
+        return value if value in {"auto", "on", "off"} else "auto"
+
+    # -- 消融开关（M5.3 的 A1 / A3 / A4 / A6，默认值 = 改造后的行为） ----------
+    @property
+    def chunker_hierarchy(self) -> bool:
+        """A1：``off`` 时退回改造前的单层标题判定（对照臂）。"""
+        return _bool(os.getenv("CHUNKER_HIERARCHY", "true"))
+
+    @property
+    def evidence_small_to_big(self) -> bool:
+        """A3：``off`` 时只用命中的行级证据，不做父块（small-to-big）替换。"""
+        return _bool(os.getenv("EVIDENCE_SMALL_TO_BIG", "true"))
+
+    @property
+    def evidence_order(self) -> str:
+        """A4：``original`` 按原文顺序（默认），``score`` 按相关度分数。"""
+        value = os.getenv("EVIDENCE_ORDER", "original").strip().lower()
+        return value if value in {"original", "score"} else "original"
+
+    @property
+    def structure_mode(self) -> str:
+        """A6：``deterministic`` 走文档树确定性回答，``llm`` 退回生成式回答。"""
+        value = os.getenv("STRUCTURE_MODE", "deterministic").strip().lower()
+        return value if value in {"deterministic", "llm"} else "deterministic"
+
     # -- Graph ---------------------------------------------------------------
     @property
     def graph_include_chunk_nodes(self) -> bool:
@@ -274,6 +330,11 @@ class Config:
         enable when experimenting with graph-side community summarisation.
         """
         return _bool(os.getenv("GRAPH_INCLUDE_CHUNK_NODES", "false"))
+
+    @property
+    def graph_include_doc_tree(self) -> bool:
+        """Mirror ``doc_tree.json`` into Neo4j (P3, off by default)."""
+        return _bool(os.getenv("GRAPH_INCLUDE_DOC_TREE", "false"))
 
     # -- API surface ---------------------------------------------------------
     @property

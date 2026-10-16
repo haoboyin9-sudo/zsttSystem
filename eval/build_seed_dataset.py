@@ -21,7 +21,7 @@ import json
 import random
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -382,12 +382,432 @@ def _unanswerable_items(
     return items
 
 
+# ---------------------------------------------------------------------------
+# M5.1 新题型：structure / 教师 / 考核 / 无答案章节
+# 金标全部从 doc_tree.json / syllabus_profiles.json 自动生成；产物缺失时跳过。
+# ---------------------------------------------------------------------------
+
+#: 新增子集的目标条数；产物不足时取可用最大值并在日志中说明。
+STRUCTURE_QUOTAS: dict[str, int] = {
+    "structure-chapter": 30,
+    "structure-outline": 20,
+    "fact-instructor-syllabus": 20,
+    "fact-instructor-missing": 10,
+    "fact-assessment": 15,
+    "noanswer-chapter": 10,
+}
+
+#: 占位符与空值都视为「未记录」。
+_MISSING_VALUES = (None, "", "/", "／", "-", "—", "无", "N/A", "n/a")
+
+#: 任课教师字段的候选键名（防御式读取，兼容并行实现的键名差异）。
+_INSTRUCTOR_FIELDS = (
+    "course_owner",
+    "lecturers",
+    "instructor",
+    "teacher",
+    "任课教师",
+    "主讲教师",
+    "课程负责人",
+)
+
+
+def _is_missing(value: Any) -> bool:
+    """占位符（``/`` 等）与空值都算缺失。"""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() in _MISSING_VALUES
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) == 0
+    return False
+
+
+def _load_optional(path: Path) -> Any | None:
+    """读取可选产物；缺失或损坏时告警并返回 ``None``（优雅降级）。"""
+    if not path.exists():
+        print(f"[seed] 产物缺失：{path}；相关子集跳过", file=sys.stderr)
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[seed] 产物无法解析：{path}（{exc}）；相关子集跳过", file=sys.stderr)
+        return None
+
+
+def _documents(doc_tree: Any) -> list[dict[str, Any]]:
+    if not isinstance(doc_tree, dict):
+        return []
+    documents = doc_tree.get("documents")
+    if not isinstance(documents, dict):
+        return []
+    return [doc for doc in documents.values() if isinstance(doc, dict)]
+
+
+def _chapter_nodes(document: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """按章号返回去重后的 chapter 节点（稳定顺序）。"""
+    nodes = document.get("nodes")
+    if not isinstance(nodes, dict):
+        return []
+    chapters: list[dict[str, Any]] = []
+    seen: set[tuple[Any, str]] = set()
+    for node in nodes.values():
+        if not isinstance(node, dict) or str(node.get("kind")) != "chapter":
+            continue
+        key = (node.get("chapter_no"), str(node.get("title") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        chapters.append(node)
+
+    def sort_key(node: Mapping[str, Any]) -> tuple[int, str]:
+        try:
+            number = int(node.get("chapter_no"))
+        except (TypeError, ValueError):
+            number = 1 << 30
+        return (number, str(node.get("title") or ""))
+
+    chapters.sort(key=sort_key)
+    return chapters
+
+
+def _node_chunk_ids(node: Mapping[str, Any]) -> list[str]:
+    ids = node.get("chunk_ids")
+    if not isinstance(ids, (list, tuple)):
+        return []
+    return [str(cid) for cid in ids if str(cid)]
+
+
+def _document_name(document: Mapping[str, Any]) -> str:
+    return str(document.get("course_name") or document.get("course_code") or "").strip()
+
+
+def _profile_records(profiles: Any) -> list[tuple[str, dict[str, Any]]]:
+    if not isinstance(profiles, dict):
+        return []
+    return [(str(key), value) for key, value in profiles.items() if isinstance(value, dict)]
+
+
+def _profile_code(profile: Mapping[str, Any], key: str) -> str:
+    """取课程代码；键名兼容 ``course_code::year`` 与 ``course_code|year``。"""
+    code = str(profile.get("course_code") or "").strip()
+    if code:
+        return code
+    for separator in ("::", "|"):
+        if separator in key:
+            return key.split(separator, 1)[0].strip()
+    return key.strip()
+
+
+def _profile_names(profile: Mapping[str, Any]) -> list[str]:
+    """汇总大纲里的教师姓名（course_owner / lecturers / 别名键）。"""
+    names: list[str] = []
+    for field in _INSTRUCTOR_FIELDS:
+        value = profile.get(field)
+        if value is None or isinstance(value, Mapping):
+            continue
+        if isinstance(value, str):
+            names.append(value)
+        elif isinstance(value, (list, tuple, set)):
+            names.extend(str(part) for part in value)
+    cleaned: list[str] = []
+    for name in names:
+        name = name.strip()
+        if _is_missing(name) or name in cleaned:
+            continue
+        cleaned.append(name)
+    return cleaned
+
+
+def _profile_chunk_ids(profile: Mapping[str, Any], tokens: tuple[str, ...]) -> list[str]:
+    """从 ``field_chunk_ids`` 里挑出与给定字段名匹配的 chunk 引用。"""
+    mapping = profile.get("field_chunk_ids")
+    if not isinstance(mapping, dict):
+        return []
+    ids: list[str] = []
+    for field, value in mapping.items():
+        if not any(token in str(field) for token in tokens):
+            continue
+        if isinstance(value, str) and value:
+            ids.append(value)
+        elif isinstance(value, (list, tuple)):
+            ids.extend(str(entry) for entry in value if entry)
+    return list(dict.fromkeys(ids))
+
+
+def _spread(candidates: list[Any], quota: int, group_key: Any) -> list[Any]:
+    """先每门课各取一条，再回头补足，保证子集覆盖尽量多的课程。"""
+    picked: list[Any] = []
+    seen: set[Any] = set()
+    for candidate in candidates:
+        if len(picked) >= quota:
+            return picked
+        group = group_key(candidate)
+        if group in seen:
+            continue
+        seen.add(group)
+        picked.append(candidate)
+    for candidate in candidates:
+        if len(picked) >= quota:
+            break
+        if candidate in picked:
+            continue
+        picked.append(candidate)
+    return picked
+
+
+def _structure_chapter_items(doc_tree: Any, rng: random.Random) -> list[GoldItem]:
+    """《X》第 N 章讲什么？——chunk 级金标 = 该章 chunk_ids。"""
+    candidates: list[tuple[Any, ...]] = []
+    for document in _documents(doc_tree):
+        name = _document_name(document)
+        code = str(document.get("course_code") or "").strip()
+        if not name:
+            continue
+        for node in _chapter_nodes(document):
+            title = str(node.get("title") or "").strip()
+            chunk_ids = _node_chunk_ids(node)
+            number = node.get("chapter_no")
+            if not title or not chunk_ids or number is None:
+                continue
+            candidates.append((code, number, name, title, chunk_ids))
+    rng.shuffle(candidates)
+    selected = _spread(candidates, STRUCTURE_QUOTAS["structure-chapter"], lambda c: c[0])
+    items: list[GoldItem] = []
+    for index, (code, number, name, title, chunk_ids) in enumerate(selected, start=1):
+        items.append(
+            GoldItem(
+                id=f"structure-chapter-{index:03d}",
+                question=f"《{name}》第 {number} 章讲什么？",
+                expected_route="structure",
+                answer_keys=[title],
+                gold_chunk_ids=chunk_ids,
+                gold_course_codes=[code] if code else [],
+                gold_chapter_titles=[title],
+                subset="structure-chapter",
+                source="auto-seed",
+                notes=f"chapter_no={number}（answer_keys 暂用章标题，内容关键词待人工补充）",
+            )
+        )
+    return items
+
+
+def _structure_outline_items(doc_tree: Any, rng: random.Random) -> list[GoldItem]:
+    """《X》一共有几章？分别是什么？——整表金标 = 全部章节 chunk_ids。"""
+    candidates: list[tuple[str, str, list[str], list[str]]] = []
+    for document in _documents(doc_tree):
+        name = _document_name(document)
+        code = str(document.get("course_code") or "").strip()
+        chapters = _chapter_nodes(document)
+        titles = [str(node.get("title") or "").strip() for node in chapters]
+        titles = [title for title in titles if title]
+        chunk_ids: list[str] = []
+        for node in chapters:
+            for chunk_id in _node_chunk_ids(node):
+                if chunk_id not in chunk_ids:
+                    chunk_ids.append(chunk_id)
+        if not name or len(titles) < 2 or not chunk_ids:
+            continue
+        candidates.append((code, name, titles, chunk_ids))
+    rng.shuffle(candidates)
+    selected = _spread(candidates, STRUCTURE_QUOTAS["structure-outline"], lambda c: c[0])
+    items: list[GoldItem] = []
+    for index, (code, name, titles, chunk_ids) in enumerate(selected, start=1):
+        count = len(titles)
+        answer_keys = [f"{count}章|{count} 章|共{count}章|共 {count} 章"]
+        answer_keys.extend(titles)
+        items.append(
+            GoldItem(
+                id=f"structure-outline-{index:03d}",
+                question=f"《{name}》一共有几章？分别是什么？",
+                expected_route="structure",
+                answer_keys=answer_keys,
+                gold_chunk_ids=chunk_ids,
+                gold_course_codes=[code] if code else [],
+                gold_chapter_titles=titles,
+                subset="structure-outline",
+                source="auto-seed",
+                notes=f"chapter_count={count}",
+            )
+        )
+    return items
+
+
+def _fact_instructor_items(
+    profiles: Any,
+    courses: list[dict[str, Any]],
+    rng: random.Random,
+) -> list[GoldItem]:
+    """《X》的任课教师是谁？——金标取大纲结构化字段，优先培养方案为 ``/`` 的课。"""
+    plan_instructor = {
+        str(course.get("course_code")): course.get("instructor")
+        for course in courses
+        if course.get("course_code")
+    }
+    candidates: list[tuple[int, str, str, list[str], list[str]]] = []
+    for key, profile in _profile_records(profiles):
+        names = _profile_names(profile)
+        name = str(profile.get("course_name") or "").strip()
+        if not names or not name:
+            continue
+        code = _profile_code(profile, key)
+        priority = 0 if _is_missing(plan_instructor.get(code)) else 1
+        chunk_ids = _profile_chunk_ids(
+            profile, ("course_owner", "lectur", "instructor", "teacher", "教师", "负责")
+        )
+        candidates.append((priority, code, name, names, chunk_ids))
+    rng.shuffle(candidates)
+    candidates.sort(key=lambda candidate: candidate[0])
+    selected = _spread(
+        candidates, STRUCTURE_QUOTAS["fact-instructor-syllabus"], lambda c: c[1]
+    )
+    items: list[GoldItem] = []
+    for index, (_, code, name, names, chunk_ids) in enumerate(selected, start=1):
+        items.append(
+            GoldItem(
+                id=f"instr-syllabus-{index:03d}",
+                question=f"《{name}》的任课教师是谁？",
+                expected_route="fact",
+                answer_keys=["|".join(names)],
+                gold_chunk_ids=chunk_ids,
+                gold_course_codes=[code] if code else [],
+                expected_instructors=names,
+                subset="fact-instructor-syllabus",
+                source="auto-seed",
+                notes="source=syllabus_profile",
+            )
+        )
+    return items
+
+
+def _fact_instructor_missing_items(
+    courses: list[dict[str, Any]],
+    profiles: Any,
+) -> list[GoldItem]:
+    """两源（培养方案 + 大纲）都无教师记录：期望明确回答「未记录」，按拒答计。
+
+    只要培养方案未记录教师、且大纲侧也没有该课（或大纲没有教师字段），就算
+    「两源都缺」——不要求这门口课一定有大纲，否则口径过窄会漏掉无大纲的课。
+    """
+    if profiles is None:
+        print(
+            "[seed] 缺 syllabus_profiles，fact-instructor-missing 子集跳过",
+            file=sys.stderr,
+        )
+        return []
+    with_syllabus = {
+        _profile_code(profile, key)
+        for key, profile in _profile_records(profiles)
+        if _profile_names(profile)
+    }
+    items: list[GoldItem] = []
+    for course in courses:
+        if len(items) >= STRUCTURE_QUOTAS["fact-instructor-missing"]:
+            break
+        code = str(course.get("course_code") or "")
+        name = str(course.get("course_name") or "").strip()
+        if not code or not name:
+            continue
+        if not _is_missing(course.get("instructor")):
+            continue
+        if code in with_syllabus:
+            continue
+        items.append(
+            GoldItem(
+                id=f"instr-missing-{len(items) + 1:03d}",
+                question=f"《{name}》的任课教师是谁？",
+                expected_route="fact",
+                answerable=False,
+                gold_course_codes=[code],
+                subset="fact-instructor-missing",
+                source="auto-seed",
+                notes="培养方案与大纲均未记录任课教师",
+            )
+        )
+    return items
+
+
+def _fact_assessment_items(profiles: Any, rng: random.Random) -> list[GoldItem]:
+    """《X》怎么考核？——金标取 syllabus_profile.assessment_mode。"""
+    candidates: list[tuple[str, str, str, list[str]]] = []
+    for key, profile in _profile_records(profiles):
+        mode = profile.get("assessment_mode")
+        if isinstance(mode, (list, tuple)):
+            mode = "；".join(str(part) for part in mode if not _is_missing(part))
+        if _is_missing(mode):
+            continue
+        name = str(profile.get("course_name") or "").strip()
+        if not name:
+            continue
+        code = _profile_code(profile, key)
+        chunk_ids = _profile_chunk_ids(profile, ("assessment", "grading", "考核", "成绩"))
+        candidates.append((code, name, str(mode).strip(), chunk_ids))
+    rng.shuffle(candidates)
+    selected = _spread(candidates, STRUCTURE_QUOTAS["fact-assessment"], lambda c: c[0])
+    items: list[GoldItem] = []
+    for index, (code, name, mode, chunk_ids) in enumerate(selected, start=1):
+        items.append(
+            GoldItem(
+                id=f"assessment-{index:03d}",
+                question=f"《{name}》怎么考核？",
+                expected_route="fact",
+                answer_keys=[mode],
+                gold_chunk_ids=chunk_ids,
+                gold_course_codes=[code] if code else [],
+                subset="fact-assessment",
+                source="auto-seed",
+                notes="field=assessment_mode",
+            )
+        )
+    return items
+
+
+def _noanswer_chapter_items(doc_tree: Any, rng: random.Random) -> list[GoldItem]:
+    """《X》第 99 章讲什么？——章号不存在于文档树，期望拒答。"""
+    candidates: list[tuple[str, str]] = []
+    for document in _documents(doc_tree):
+        name = _document_name(document)
+        code = str(document.get("course_code") or "").strip()
+        if not name or not _chapter_nodes(document):
+            continue
+        candidates.append((code, name))
+    rng.shuffle(candidates)
+    selected = _spread(candidates, STRUCTURE_QUOTAS["noanswer-chapter"], lambda c: c[0])
+    items: list[GoldItem] = []
+    for index, (code, name) in enumerate(selected, start=1):
+        items.append(
+            GoldItem(
+                id=f"noanswer-chapter-{index:03d}",
+                question=f"《{name}》第 99 章讲什么？",
+                expected_route="structure",
+                answerable=False,
+                gold_course_codes=[code] if code else [],
+                subset="noanswer-chapter",
+                source="auto-seed",
+                notes="章号 99 不存在于文档树",
+            )
+        )
+    return items
+
+
+def _format_subset_counts(items: list[GoldItem]) -> None:
+    """日志：说明各子集实际产出条数（产物不足时取到多少就多少）。"""
+    counts: dict[str, int] = {}
+    for item in items:
+        key = item.subset or "(既有子集)"
+        counts[key] = counts.get(key, 0) + 1
+    print("[seed] 子集条数：", file=sys.stderr)
+    for key in sorted(counts):
+        print(f"[seed]   {key}: {counts[key]}", file=sys.stderr)
+
+
 def build(output: Path) -> dict[str, Any]:
     courses = _load(config.courses_output_path)
     chunks = _load(config.chunks_output_path)
     documented = _syllabus_course_codes(chunks)
     rng = random.Random(SEED)
 
+    # 既有五类子集的生成逻辑、顺序与随机种子保持不变；新题型一律追加在后。
     items = [
         *_fact_items(courses, documented, rng),
         *_content_items(courses, documented, rng),
@@ -395,16 +815,34 @@ def build(output: Path) -> dict[str, Any]:
         *_catalog_items(courses, rng),
         *_unanswerable_items(courses, documented, rng),
     ]
+
+    # M5.1 新题型：从并行交付的产物自动生成；产物缺失时跳过并告警（不抛异常）。
+    doc_tree = _load_optional(config.doc_tree_path)
+    profiles = _load_optional(config.syllabus_profiles_path)
+    items.extend(_structure_chapter_items(doc_tree, rng))
+    items.extend(_structure_outline_items(doc_tree, rng))
+    items.extend(_fact_instructor_items(profiles, courses, rng))
+    items.extend(_fact_instructor_missing_items(courses, profiles))
+    items.extend(_fact_assessment_items(profiles, rng))
+    items.extend(_noanswer_chapter_items(doc_tree, rng))
+
     problems = [problem for item in items for problem in item.validate()]
     if problems:
         raise SystemExit("generated items failed validation:\n  " + "\n  ".join(problems))
+
+    _format_subset_counts(items)
+    chunk_level = sum(1 for item in items if item.gold_chunk_ids)
+    print(f"[seed] chunk 级金标题目：{chunk_level} 条", file=sys.stderr)
 
     save_dataset(
         items,
         output,
         description=(
-            "自动生成的种子评测集：事实/内容/依赖/目录/无答案五类。"
-            "答案要点由培养方案字段推导，chunk 级标注与内容题答案要点需人工补充。"
+            "自动生成的种子评测集：既有事实/内容/依赖/目录/无答案五类，"
+            "新增 structure-chapter / structure-outline / fact-instructor-syllabus / "
+            "fact-instructor-missing / fact-assessment / noanswer-chapter 六类。"
+            "新题型由 doc_tree.json 与 syllabus_profiles.json 自动生成（产物缺失时跳过）。"
+            "内容题答案要点与部分 chunk 级标注仍需人工补充。"
         ),
     )
     return dataset_summary(items)

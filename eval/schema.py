@@ -22,7 +22,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Iterable
 
-ROUTES = ("fact", "content", "dependency", "catalog", "hybrid")
+ROUTES = ("fact", "content", "dependency", "catalog", "hybrid", "structure")
 
 
 @dataclass
@@ -35,6 +35,12 @@ class GoldItem:
     gold_chunk_ids: list[str] = field(default_factory=list)
     gold_course_codes: list[str] = field(default_factory=list)
     gold_section_types: list[str] = field(default_factory=list)
+    # M5.1/M5.2 新增金标：structure 题的有序章节标题、教师题的姓名集合，
+    # 以及逐题子集标签（structure-chapter / fact-instructor-syllabus ...）。
+    # 都是可空字段，旧数据集不带这些键时行为不变。
+    gold_chapter_titles: list[str] = field(default_factory=list)
+    expected_instructors: list[str] = field(default_factory=list)
+    subset: str = ""
     persona: str = "student"
     source: str = "human"
     notes: str = ""

@@ -6,6 +6,8 @@ from typing import Any
 
 import pytest
 
+from src.data_processing.doc_tree import build_doc_tree
+from src.online_service.doc_tree import DocTree
 from src.online_service.query_router import QueryRouter
 
 
@@ -291,3 +293,117 @@ def test_demo_page_exposes_the_feedback_loop() -> None:
     assert 'id="feedback" hidden' in template
     assert "showFeedback(data.query_id)" in template
     assert "hideFeedback()" in template
+
+
+# --------------------------------------------------------------------------- #
+# 大创改造 §7：两条固定回归（追加，不改动上面的既有用例）。
+# --------------------------------------------------------------------------- #
+
+def _syllabus_chunk(
+    chunk_id: str,
+    chunk_index: int,
+    heading_path: list[str],
+    text: str,
+    *,
+    section_type: str = "teaching_schedule",
+    is_header: bool = False,
+) -> dict[str, Any]:
+    """构造一个 IM399 大纲 chunk（形态与 P1 parser 产物一致）。"""
+    metadata: dict[str, Any] = {
+        "source_type": "syllabus",
+        "section_type": section_type,
+        "course_code": "IM399",
+        "course_name": "管理运筹学",
+        "source_year": "2025",
+        "syllabus_section": heading_path[-1] if heading_path else "",
+    }
+    if is_header:
+        metadata["is_header"] = True
+    return {
+        "chunk_id": chunk_id,
+        "document_hash": "hashIM399",
+        "chunk_index": chunk_index,
+        "heading_path": heading_path,
+        "text": text,
+        "source_file": "2025-1教学大纲汇总/IM399管理运筹学.docx",
+        "metadata": metadata,
+    }
+
+
+def _im399_doc_tree() -> DocTree:
+    schedule = ["四、教学进度"]
+    chunks = [
+        _syllabus_chunk(
+            "b0", 0, ["一、课程基本信息"], "课程负责人：/",
+            section_type="basic_info", is_header=True,
+        ),
+        _syllabus_chunk("b1", 1, schedule, "本表按周次安排教学进度。"),
+        _syllabus_chunk(
+            "b2", 2, schedule + ["第一章 线性规划"],
+            "章节次序及名称：第一章 线性规划\n学时：8",
+        ),
+        _syllabus_chunk(
+            "b3", 3, schedule + ["第二章 整数规划"],
+            "章节次序及名称：第二章 整数规划\n学时：6",
+        ),
+        _syllabus_chunk(
+            "b4", 4, schedule + ["第三章 网络分析"],
+            "章节次序及名称：第三章 网络分析\n学时：4",
+        ),
+    ]
+    return DocTree(build_doc_tree(chunks))
+
+
+def test_quality_structure_chapter_is_deterministic() -> None:
+    """「某课第三章讲什么」走 structure，答案含该章标题且结构顺序正确。"""
+    router = QueryRouter(vector_retriever=RegressionRetriever())
+    router.courses = [
+        {"course_code": "IM399", "course_name": "管理运筹学", "credits": 3}
+    ]
+    router.set_doc_tree(_im399_doc_tree())
+
+    result = asyncio.run(
+        router.route("《管理运筹学》第三章讲什么？", "quality-structure")
+    )
+
+    assert result.query_type == "structure"
+    assert result.metadata["structure_source"] == "doc_tree"
+    assert result.metadata["chapter_no"] == 3
+    # 只答本章，不串到别的章。
+    assert "第三章 网络分析" in result.answer
+    assert "第一章 线性规划" not in result.answer
+    assert "第二章 整数规划" not in result.answer
+    # 顺序：章节标题 → 正文 → 学时 → 资料来源。
+    assert result.answer.index("第三章 网络分析") < result.answer.index("资料来源")
+    _assert_clean_answer(result.answer)
+
+
+def test_quality_instructor_placeholder_is_not_an_answer() -> None:
+    """培养方案负责人为 ``/`` 且大纲无记录时，不得输出「为 /」，按「未记录」拒答。"""
+    router = QueryRouter(vector_retriever=RegressionRetriever())
+    router.courses = [
+        {
+            "course_code": "IM399",
+            "course_name": "管理运筹学",
+            "instructor": "/",
+            "offerings": [
+                {
+                    "program_name": "信息管理与信息系统专业培养方案",
+                    "program_type": "主修专业",
+                    "instructor": "/",
+                    "source_file": "信管培养方案.xlsx",
+                }
+            ],
+        }
+    ]
+
+    result = asyncio.run(
+        router.route("《管理运筹学》的任课教师是谁？", "quality-instructor")
+    )
+
+    assert result.query_type == "fact"
+    assert "为 /" not in result.answer
+    assert "未记录" in result.answer
+    assert result.metadata["status"] == "refused"
+    assert result.metadata["error_code"] == "FACT_INSTRUCTOR_NOT_RECORDED"
+    _assert_clean_answer(result.answer)
