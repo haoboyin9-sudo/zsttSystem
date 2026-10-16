@@ -60,6 +60,28 @@ def test_nli_ignores_headings_and_source_listing() -> None:
     assert checked == ["数据库课程介绍关系模型。", "学习SQL查询。"]
 
 
+def test_nli_skips_lead_in_line_ending_with_colon() -> None:
+    checked: list[str] = []
+
+    def record(sentence, _context, _client, _model):
+        checked.append(sentence)
+        return _result("Entailment")
+
+    answer = (
+        "根据现有课程资料，数字信息组织的相关信息如下：\n"
+        "- 第1章 数字信息组织理论：概述\n"
+        "- 第2章 数字信息组织理论：主题法与分类法"
+    )
+    with patch("src.online_service.generator._run_single_nli", side_effect=record):
+        verified, _details = verify_answer_with_nli(answer, "context", object())
+
+    assert verified
+    assert checked == [
+        "第1章 数字信息组织理论：概述",
+        "第2章 数字信息组织理论：主题法与分类法",
+    ]
+
+
 def test_nli_rejects_unknown_labels_and_invalid_scores() -> None:
     with patch(
         "src.online_service.generator.generate_json",
@@ -388,3 +410,113 @@ def test_route_clears_citations_when_verification_refuses_answer() -> None:
     assert result.citations == []
     assert result.metadata["status"] == "fallback"
     assert result.metadata["error_code"] == "NLI_VERIFICATION_FAILED"
+
+
+def test_generation_max_tokens_follows_route_and_config(monkeypatch) -> None:
+    from src.online_service.generator import generation_max_tokens
+
+    monkeypatch.delenv("GENERATION_MAX_TOKENS_CONTENT", raising=False)
+    assert generation_max_tokens("content") == 1024
+    assert generation_max_tokens("hybrid") == 1024
+    assert generation_max_tokens("unknown-route") == 1024
+    for structured in ("fact", "catalog", "dependency", "structure"):
+        assert generation_max_tokens(structured) == 512
+
+    monkeypatch.setenv("GENERATION_MAX_TOKENS_CONTENT", "2048")
+    assert generation_max_tokens("content") == 2048
+    monkeypatch.setenv("GENERATION_MAX_TOKENS_CONTENT", "128")
+    assert generation_max_tokens("content") == 256
+
+
+def test_generate_answer_once_uses_route_specific_output_budget(monkeypatch) -> None:
+    from src.online_service.generator import generate_answer_once
+
+    monkeypatch.delenv("GENERATION_MAX_TOKENS_CONTENT", raising=False)
+    captured: dict[str, Any] = {}
+
+    def fake_generate_text(_client, _model, prompt, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        return "回答。"
+
+    evidence = [{"excerpt": "证据正文。", "source_file": "course.docx"}]
+    with patch(
+        "src.online_service.generator.generate_text",
+        side_effect=fake_generate_text,
+    ):
+        generate_answer_once("课程学什么", evidence, object(), route_type="fact")
+        assert captured["max_output_tokens"] == 512
+        captured.clear()
+        generate_answer_once("课程学什么", evidence, object(), route_type="content")
+
+    assert captured["max_output_tokens"] == 1024
+    assert "证据按原文顺序排列" in captured["prompt"]
+
+
+def test_rewrite_answer_keeps_route_budget_and_order_constraint(monkeypatch) -> None:
+    from src.online_service.generator import _rewrite_answer
+
+    monkeypatch.delenv("GENERATION_MAX_TOKENS_CONTENT", raising=False)
+    captured: dict[str, Any] = {}
+
+    def fake_generate_text(_client, _model, prompt, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        return "改写后的回答。"
+
+    with patch(
+        "src.online_service.generator.generate_text",
+        side_effect=fake_generate_text,
+    ):
+        _rewrite_answer(
+            "课程学什么",
+            "旧回答。",
+            [{"excerpt": "证据正文。", "source_file": "course.docx"}],
+            [{"sentence": "未通过句子。", "label": "Neutral"}],
+            object(),
+            "student",
+            route_type="catalog",
+        )
+
+    assert captured["max_output_tokens"] == 512
+    assert "证据按原文顺序排列" in captured["prompt"]
+
+
+def test_evidence_prompt_prefers_breadcrumb_and_numbers_positions() -> None:
+    from src.online_service.generator import _format_evidence_for_prompt
+
+    evidence = [
+        {
+            "course_name": "数字信息组织",
+            "course_code": "IM127",
+            "breadcrumb": "数字信息组织 > 第1章 数字信息组织理论",
+            "section": "旧章节标签",
+            "source_file": "syllabus/IM127.docx",
+            "excerpt": "第1章 数字信息组织理论(细化至节，必填)：理论与方法",
+        },
+        {
+            "course_name": "数字信息组织",
+            "section": "课程目标",
+            "source_file": "syllabus/IM127.docx",
+            "excerpt": "本课程目标(必填)：掌握分类法",
+        },
+        {
+            "course_name": "数字信息组织",
+            "breadcrumb": "   ",
+            "syllabus_section": "第2章 主题法",
+            "source_file": "syllabus/IM127.docx",
+            "excerpt": "第2章 主题法：标引规则",
+        },
+    ]
+
+    text = _format_evidence_for_prompt(evidence)
+
+    assert "章节：数字信息组织 > 第1章 数字信息组织理论" in text
+    assert "章节：旧章节标签" not in text
+    assert "章节：课程目标" in text
+    assert "章节：第2章 主题法" in text
+    assert "原文位置：第 1 / 3 段" in text
+    assert "原文位置：第 3 / 3 段" in text
+    assert "(必填)" not in text
+    assert "细化至节，必填" not in text
+    assert "理论与方法" in text

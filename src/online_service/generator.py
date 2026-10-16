@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,34 @@ from src.online_service.persona import DEFAULT_PERSONA, PERSONA_PROFILES, Person
 from src.utils.deepseek_client import generate_json, generate_text
 
 MAX_GENERATION_EVIDENCE_ITEMS = 10
+
+# 结构化路由沿用原来的短答案上限，content / hybrid 等叙述型路由按配置放宽
+# （P0-4 / M6.5）。
+_STRUCTURED_ROUTE_TYPES = frozenset({"fact", "catalog", "dependency", "structure"})
+_STRUCTURED_ROUTE_MAX_TOKENS = 512
+
+# 进度表模板括注（「(必填)」「(细化至节，必填)」等）只在 prompt 展示层剥离，
+# 不改动索引与检索数据（P0-4）。
+_PROMPT_TEMPLATE_ANNOTATION = re.compile(r"[（(][^（()）]*(?:必填|细化至节)[^（()）]*[）)]")
+
+# 生成与改写 prompt 共用的证据顺序约束（M6.6）。
+_EVIDENCE_ORDER_CONSTRAINT = (
+    "证据按原文顺序排列；涉及章节时按章节号顺序列出，不得合并或跳过证据中出现的章节。"
+)
+
+
+def generation_max_tokens(route_type: str) -> int:
+    """按路由类型返回答案长度上限。
+
+    ``content`` / ``hybrid`` 等叙述型路由使用
+    ``config.generation_max_tokens_content``（默认 1024，最小 256）；
+    ``fact`` / ``catalog`` / ``dependency`` / ``structure`` 等结构化路由沿用 512。
+    未知取值按 ``content`` 处理；配置在调用时读取，便于环境变量覆盖。
+    """
+    normalized = str(route_type or "").strip().lower()
+    if normalized in _STRUCTURED_ROUTE_TYPES:
+        return _STRUCTURED_ROUTE_MAX_TOKENS
+    return config.generation_max_tokens_content
 
 
 def select_generation_evidence(
@@ -38,18 +67,35 @@ def _source_name(value: Any) -> str:
     return Path(normalized).name or "本地知识库"
 
 
+def _strip_template_annotations(text: Any) -> str:
+    """剥离进度表模板括注，仅影响 prompt 展示文本。"""
+    return _PROMPT_TEMPLATE_ANNOTATION.sub("", str(text or "")).strip()
+
+
+def _prompt_section(item: dict[str, Any]) -> str:
+    """证据条目的章节标签：优先 chunk 的 breadcrumb，其次 section / syllabus_section。"""
+    for key in ("breadcrumb", "section", "syllabus_section"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return "未标注"
+
+
 def _format_evidence_for_prompt(evidence_items: list[dict[str, Any]]) -> str:
+    selected = select_generation_evidence(evidence_items)
+    total = len(selected)
     blocks: list[str] = []
-    for index, item in enumerate(select_generation_evidence(evidence_items), 1):
+    for index, item in enumerate(selected, 1):
         blocks.append(
             "\n".join(
                 [
                     f"证据 {index}",
                     f"课程：{item.get('course_name') or '未标注'}"
                     f"（{item.get('course_code') or '无代码'}）",
-                    f"章节：{item.get('section') or '未标注'}",
+                    f"章节：{_prompt_section(item)}",
                     f"文件：{_source_name(item.get('source_file'))}",
-                    f"内容：{str(item.get('excerpt') or '').strip()}",
+                    f"原文位置：第 {index} / {total} 段",
+                    f"内容：{_strip_template_annotations(item.get('excerpt'))}",
                 ]
             )
         )
@@ -228,8 +274,13 @@ def generate_answer_once(
     evidence_items: list[dict[str, Any]],
     llm_client: Any = None,
     persona: Persona = DEFAULT_PERSONA,
+    route_type: str = "content",
 ) -> str:
-    """Generate a grounded answer from structured evidence items."""
+    """Generate a grounded answer from structured evidence items.
+
+    ``route_type`` 决定答案长度上限（见 :func:`generation_max_tokens`）；
+    缺省 ``content`` 与改造前的行为一致。
+    """
     if llm_client is None:
         return build_fallback_answer(query, evidence_items, persona)
     evidence = _format_evidence_for_prompt(evidence_items)
@@ -241,6 +292,7 @@ def generate_answer_once(
         "1. 第一段直接回答问题；\n"
         "2. 使用“核心内容：”列出简洁要点；\n"
         "3. 使用“资料来源：”列出课程、章节和文件名。\n"
+        f"{_EVIDENCE_ORDER_CONSTRAINT}\n"
         "不要输出 JSON、查询 ID、分数、chunk_id、内部字段或代码块。"
         "证据不足时明确说明无法确认。\n"
         f"问题：{query}\n\n"
@@ -251,7 +303,7 @@ def generate_answer_once(
         config.text_model,
         prompt,
         temperature=0.1,
-        max_output_tokens=512,
+        max_output_tokens=generation_max_tokens(route_type),
     )
     return answer.strip() if answer and answer.strip() else build_fallback_answer(
         query,
@@ -274,7 +326,8 @@ def _split_sentences(answer: str) -> list[str]:
                 continue
             in_source_listing = False
         normalized = re.sub(r"^(?:[-*•]|\d+[.)、])\s*", "", normalized)
-        if not normalized or normalized in {"核心内容：", "教学要点：", "课程概览："}:
+        # 以冒号结尾的整行是引出下文的过渡句（「核心内容：」「……相关信息如下：」），本身不是事实
+        if not normalized or normalized.endswith(("：", ":")):
             continue
         for part in re.split(r"(?<=[。！？!?；;])\s*", normalized):
             claim = part.strip()
@@ -374,6 +427,7 @@ def verify_answer_with_nli(
     nli_model: Any,
     *,
     threshold: float | None = None,
+    route_type: str = "content",
 ) -> tuple[bool, list[dict[str, Any]]]:
     """Check whether answer sentences are supported by context.
 
@@ -381,6 +435,9 @@ def verify_answer_with_nli(
     >= threshold (default 0.6) sentences are entailed AND there are
     zero Contradiction sentences.  Unknown (LLM parse error) sentences
     count as non-entailed.
+
+    ``route_type`` 由调用方透传（P0-4），当前校验策略与路由无关，
+    保留该参数便于后续按路由调整判断阈值或提示词。
     """
     threshold = threshold if threshold is not None else config.nli_entailment_threshold
     if not 0.0 <= threshold <= 1.0:
@@ -427,6 +484,7 @@ def _rewrite_answer(
     details: list[dict[str, Any]],
     llm_client: Any,
     persona: Persona,
+    route_type: str = "content",
 ) -> str:
     unsupported = [
         item["sentence"]
@@ -439,6 +497,7 @@ def _rewrite_answer(
         "请完全重写回答，只保留能由证据直接支持的事实；无法确认的内容不要猜测。\n"
         f"{profile['prompt']}\n"
         "回答仍需包含直接回答、核心内容和资料来源，但不得输出校验过程或JSON。\n"
+        f"{_EVIDENCE_ORDER_CONSTRAINT}\n"
         f"问题：{query}\n"
         f"上一版回答：{answer}\n"
         f"未通过句子：{unsupported}\n\n"
@@ -449,7 +508,7 @@ def _rewrite_answer(
         config.text_model,
         prompt,
         temperature=0.0,
-        max_output_tokens=512,
+        max_output_tokens=generation_max_tokens(route_type),
     )
     if not rewritten or not rewritten.strip():
         raise ValueError("answer rewrite returned empty content")
@@ -479,15 +538,54 @@ def _retain_entailed_claims(
     return _attach_evidence_sources("\n".join(lines), evidence_items)
 
 
+def _call_generate_answer_once(
+    query: str,
+    evidence_items: list[dict[str, Any]],
+    llm_client: Any,
+    persona: Persona,
+    route_type: str,
+) -> str:
+    """调用 ``generate_answer_once`` 并透传路由类型。
+
+    既有测试用 4 参 side_effect 打桩该函数，因此先探测可调用对象的签名：
+    无法接收 ``route_type`` 时退回旧调用形式，保持向后兼容。
+    """
+    try:
+        parameters = inspect.signature(generate_answer_once).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    if "route_type" in parameters:
+        return generate_answer_once(
+            query,
+            evidence_items,
+            llm_client,
+            persona,
+            route_type=route_type,
+        )
+    return generate_answer_once(query, evidence_items, llm_client, persona)
+
+
 def generate_answer_with_verification(
     query: str,
     evidence_items: list[dict[str, Any]],
     llm_client: Any = None,
     persona: Persona = DEFAULT_PERSONA,
+    route_type: str = "content",
 ) -> tuple[str, dict[str, Any]]:
-    """Generate, verify, rewrite, and if necessary prune or refuse an answer."""
+    """Generate, verify, rewrite, and if necessary prune or refuse an answer.
+
+    ``route_type`` 为 ``QueryType`` 的小写名（``fact`` / ``content`` / ``catalog``
+    / ``dependency`` / ``hybrid`` / ``structure``），透传给生成与改写以决定
+    答案长度上限；缺省 ``content`` 与改造前行为一致。
+    """
     evidence_items = select_generation_evidence(evidence_items)
-    answer = generate_answer_once(query, evidence_items, llm_client, persona)
+    answer = _call_generate_answer_once(
+        query,
+        evidence_items,
+        llm_client,
+        persona,
+        route_type,
+    )
     if llm_client is not None:
         answer = _attach_evidence_sources(answer, evidence_items)
     if llm_client is None or not config.nli_verification_enabled:
@@ -503,7 +601,12 @@ def generate_answer_with_verification(
     max_retries = max(0, config.nli_max_retries)
     details: list[dict[str, Any]] = []
     for attempt in range(max_retries + 1):
-        verified, raw_details = verify_answer_with_nli(answer, context, llm_client)
+        verified, raw_details = verify_answer_with_nli(
+            answer,
+            context,
+            llm_client,
+            route_type=route_type,
+        )
         details = [{**item, "attempt": attempt + 1} for item in raw_details]
         all_claims_supported = bool(details) and all(
             item.get("label") == "Entailment" for item in details
@@ -529,6 +632,7 @@ def generate_answer_with_verification(
                     details,
                     llm_client,
                     persona,
+                    route_type=route_type,
                 )
                 answer = _attach_evidence_sources(answer, evidence_items)
             except Exception:
