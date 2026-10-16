@@ -45,6 +45,22 @@ _CONCEPT_NOISE = {
 }
 
 
+def _breadcrumb_enabled() -> bool:
+    """判定概念增强文本是否需要叠加面包屑前缀（与 chroma_index 同语义）。
+
+    ``config.embedding_breadcrumb``：``on`` 始终开启，``off`` 关闭，
+    ``auto`` 仅在向量模型不是 MiniLM 时开启。
+    """
+    strategy = str(getattr(config, "embedding_breadcrumb", "auto") or "auto")
+    strategy = strategy.strip().lower()
+    if strategy == "on":
+        return True
+    if strategy == "off":
+        return False
+    model_name = str(getattr(config, "embedding_model", "") or "").lower()
+    return "minilm" not in model_name
+
+
 class ConceptNormalizer:
     """Use LLMs and embeddings to canonicalize and validate concept dependencies."""
 
@@ -1584,25 +1600,49 @@ class ConceptNormalizer:
         metadata["core_concept_ids"] = [item["id"] for item in canonical_concepts]
         metadata["core_concept_names"] = [item["name"] for item in canonical_concepts]
         enriched_chunk["metadata"] = metadata
-        enriched_chunk["embedding_text"] = self._build_embedding_text(str(chunk.get("text", "")), canonical_concepts)
+        enriched_chunk["embedding_text"] = self._build_embedding_text(
+            str(chunk.get("text", "")),
+            canonical_concepts,
+            breadcrumb=str(chunk.get("breadcrumb") or ""),
+            breadcrumb_enabled=_breadcrumb_enabled(),
+        )
         return enriched_chunk
 
-    def _build_embedding_text(self, text: str, canonical_concepts: list[dict[str, str]]) -> str:
-        """Append canonical concept descriptors to the embedding text."""
-        normalized_text = str(text).strip()
-        if not canonical_concepts:
-            return normalized_text
+    def _build_embedding_text(
+        self,
+        text: str,
+        canonical_concepts: list[dict[str, str]],
+        *,
+        breadcrumb: str = "",
+        breadcrumb_enabled: bool = False,
+    ) -> str:
+        """在原文上叠加概念描述与结构面包屑，供向量编码使用。
 
-        concept_lines = [
-            (
-                f"{concept['id']}|{concept['name']}|{concept['type']}|"
-                f"{concept['bloom_level']}|{concept['discipline']}|"
-                f"{concept.get('source_course', '')}|{concept.get('source_course_code', '')}|"
-                f"{concept.get('source_chapter', '')}"
+        概念增强与结构面包屑是相互叠加而非相互覆盖：先按原逻辑拼出概念增强
+        文本，再按 ``chroma_index.build_embedding_text`` 的同语义在正文前加
+        面包屑前缀；已以该面包屑开头时不重复叠加。``chunk["text"]`` 原文不受影响。
+        """
+        normalized_text = str(text).strip()
+        if canonical_concepts:
+            concept_lines = [
+                (
+                    f"{concept['id']}|{concept['name']}|{concept['type']}|"
+                    f"{concept['bloom_level']}|{concept['discipline']}|"
+                    f"{concept.get('source_course', '')}|{concept.get('source_course_code', '')}|"
+                    f"{concept.get('source_chapter', '')}"
+                )
+                for concept in canonical_concepts
+            ]
+            normalized_text = (
+                f"{normalized_text}\n\n核心概念:\n" + "\n".join(concept_lines)
             )
-            for concept in canonical_concepts
-        ]
-        return f"{normalized_text}\n\n核心概念:\n" + "\n".join(concept_lines)
+
+        prefix = str(breadcrumb or "").strip()
+        if not breadcrumb_enabled or not prefix:
+            return normalized_text
+        if normalized_text.startswith(prefix):
+            return normalized_text
+        return f"{prefix}\n{normalized_text}"
 
     def _resolve_canonical_name(self, alias: str, alias_table: dict[str, list[str]]) -> str:
         """Resolve an alias back to its canonical name."""
