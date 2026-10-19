@@ -1127,8 +1127,16 @@ class QueryRouter:
     def _chapter_summary(cls, doc_tree: Any, node: Any, limit: int = 80) -> str:
         text = cls._chapter_text(doc_tree, node)
         title = str(getattr(node, "title", "") or "").strip()
+        lines = text.splitlines()
+        # 正文首行是标题路径（「（一）教学进度表 / 第1章 …」），摘要里不要重复。
+        if lines and " / " in lines[0]:
+            text = "\n".join(lines[1:]).strip()
         if title and text.startswith(title):
             text = text[len(title):].lstrip("：: \n")
+        # 进度表行是「章节：… 内容：… 学时：…」，目录里只要内容那一栏。
+        content = re.search(r"内容[:：]\s*(.*?)\s*(?:学时[:：]|$)", text, re.S)
+        if content and content.group(1).strip():
+            text = content.group(1)
         text = re.sub(r"\s+", " ", text).strip()
         if not text:
             return ""

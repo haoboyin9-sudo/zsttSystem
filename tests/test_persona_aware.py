@@ -221,7 +221,7 @@ def test_fallback_summary_skips_heading_path_line() -> None:
             "section_type": "course_objectives",
             "source_file": "IM399管理运筹学.docx",
             "source_type": "syllabus",
-            "excerpt": "一、课程基本信息 / 课程目标\n\n本课程着重介绍运筹学的主要方法。",
+            "excerpt": "一、课程基本信息 / 课程目标\n\n本课程着重介绍运筹学的主要方法。\n（一）教学进度表 / 第一章 绪论。",
         }
     ]
 
@@ -229,3 +229,4 @@ def test_fallback_summary_skips_heading_path_line() -> None:
 
     assert "课程目标：本课程着重介绍运筹学的主要方法。" in answer
     assert "一、课程基本信息 / 课程目标" not in answer
+    assert "教学进度表 / 第一章" not in answer

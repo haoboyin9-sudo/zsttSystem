@@ -24,7 +24,7 @@ _PROMPT_TEMPLATE_ANNOTATION = re.compile(r"[（(][^（()）]*(?:必填|细化至
 
 # 层级切分后 chunk 正文首行是标题路径（「一、课程基本信息 / 课程目标」），
 # 兜底摘要不能把它当成要点。
-_HEADING_PATH_LINE = re.compile(r"^[^。！？；\n]{1,80}\s/\s[^。！？；\n]{1,80}$")
+_HEADING_PATH_LINE = re.compile(r"^[^。！？；\n]{1,80}\s/\s[^。！？；\n]{1,80}。?$")
 
 # 生成与改写 prompt 共用的证据顺序约束（M6.6）。
 _EVIDENCE_ORDER_CONSTRAINT = (
