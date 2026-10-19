@@ -211,3 +211,21 @@ def test_demo_submits_explicit_persona() -> None:
     assert 'id="persona"' in template
     assert '<option value="student" selected>学生</option>' in template
     assert "persona: personaInput.value" in template
+
+
+def test_fallback_summary_skips_heading_path_line() -> None:
+    evidence = [
+        {
+            "course_name": "管理运筹学",
+            "section": "课程目标",
+            "section_type": "course_objectives",
+            "source_file": "IM399管理运筹学.docx",
+            "source_type": "syllabus",
+            "excerpt": "一、课程基本信息 / 课程目标\n\n本课程着重介绍运筹学的主要方法。",
+        }
+    ]
+
+    answer = build_fallback_answer("管理运筹学最重要的是什么", evidence, "student")
+
+    assert "课程目标：本课程着重介绍运筹学的主要方法。" in answer
+    assert "一、课程基本信息 / 课程目标" not in answer

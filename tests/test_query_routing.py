@@ -332,3 +332,8 @@ def test_structure_patterns_leave_the_original_170_routes_intact() -> None:
         and item.get("expected_route") != "structure"
     ]
     assert stolen == []
+
+
+def test_teacher_phrasings_route_to_fact() -> None:
+    for query in ("管理运筹学的老师是谁", "信息计量学哪位老师上", "数据库原理的主讲教师"):
+        assert QueryRouter.classify(query) is QueryType.FACT, query
