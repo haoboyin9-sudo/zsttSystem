@@ -22,6 +22,10 @@ _STRUCTURED_ROUTE_MAX_TOKENS = 512
 # 不改动索引与检索数据（P0-4）。
 _PROMPT_TEMPLATE_ANNOTATION = re.compile(r"[（(][^（()）]*(?:必填|细化至节)[^（()）]*[）)]")
 
+# 层级切分后 chunk 正文首行是标题路径（「一、课程基本信息 / 课程目标」），
+# 兜底摘要不能把它当成要点。
+_HEADING_PATH_LINE = re.compile(r"^[^。！？；\n]{1,80}\s/\s[^。！？；\n]{1,80}。?$")
+
 # 生成与改写 prompt 共用的证据顺序约束（M6.6）。
 _EVIDENCE_ORDER_CONSTRAINT = (
     "证据按原文顺序排列；涉及章节时按章节号顺序列出，不得合并或跳过证据中出现的章节。"
@@ -216,7 +220,9 @@ def build_fallback_answer(
         passages = [
             passage.strip()
             for passage in re.split(r"(?<=[。！？；])|\n+", excerpt)
-            if passage.strip() and passage.strip() != section
+            if passage.strip()
+            and passage.strip() != section
+            and not _HEADING_PATH_LINE.match(passage.strip())
         ]
         if not passages:
             continue

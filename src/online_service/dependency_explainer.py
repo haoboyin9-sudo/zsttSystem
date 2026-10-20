@@ -335,6 +335,29 @@ def generate_dependency_explanation(
         verified = verified and bool(details) and all(
             item.get("label") == "Entailment" for item in details
         )
+        # 句级剪枝：没有矛盾句时，保留通过校验的句子，只剪掉证据不足的那几句。
+        retained = [
+            str(item.get("sentence", "")).strip()
+            for item in details
+            if item.get("label") == "Entailment" and str(item.get("sentence", "")).strip()
+        ]
+        if (
+            not verified
+            and retained
+            and not any(item.get("label") == "Contradiction" for item in details)
+        ):
+            return {
+                "prerequisite_table": _build_prerequisite_table(prerequisites),
+                "explanation": "".join(retained),
+                "mermaid": build_mermaid_graph(paths),
+                "nli_verified": True,
+                "nli_status": "pruned",
+                "nli_details": details,
+                "nli_attempts": 1,
+                "nli_verification_target": "retained_claims",
+                "status": "degraded",
+                "error_code": "NLI_UNSUPPORTED_CLAIMS_REMOVED",
+            }
         nli_metadata = {
             "nli_verified": verified,
             "nli_status": "passed" if verified else "fallback",
@@ -519,7 +542,21 @@ def _fallback_explanation(prerequisites: list[dict[str, Any]]) -> str:
     """Build a short deterministic explanation when LLM generation fails."""
     if not prerequisites:
         return "当前图谱中没有检索到足够的先修依赖路径。"
-    return "这些先修知识位于已验证的依赖路径上，先理解它们有助于掌握目标课程中的后续概念。"
+    # 解释被拦下时，至少把图谱里查到的先修知识列出来：这些是图谱事实，不是模型生成。
+    parts = []
+    for item in prerequisites[:5]:
+        names = "、".join(
+            concept.get("name", "") for concept in item.get("concepts", []) if concept.get("name")
+        )
+        if not names:
+            continue
+        where = f"《{item['course']}》" if item.get("course") else ""
+        if item.get("chapter"):
+            where += f"{item['chapter']}的"
+        parts.append(f"{where}{names}")
+    if not parts:
+        return "这些先修知识位于已验证的依赖路径上，先理解它们有助于掌握目标课程中的后续概念。"
+    return "图谱中检索到的先修知识：" + "；".join(parts) + "。先理解它们有助于掌握目标课程中的后续概念。"
 
 
 def _mermaid_node_id(value: str) -> str:

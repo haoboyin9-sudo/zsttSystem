@@ -332,3 +332,25 @@ def test_structure_patterns_leave_the_original_170_routes_intact() -> None:
         and item.get("expected_route") != "structure"
     ]
     assert stolen == []
+
+
+def test_teacher_phrasings_route_to_fact() -> None:
+    for query in ("管理运筹学的老师是谁", "信息计量学哪位老师上", "数据库原理的主讲教师"):
+        assert QueryRouter.classify(query) is QueryType.FACT, query
+
+
+def test_chapter_summary_drops_heading_path_and_table_labels() -> None:
+    from types import SimpleNamespace
+
+    node = SimpleNamespace(
+        title="第1章 数字信息组织理论：概述",
+        text=(
+            "（一）教学进度表 / 第1章 数字信息组织理论：概述\n"
+            "章节：第1章 数字信息组织理论：概述 内容：1数字信息环境变化 2数字信息组织理论 "
+            "学时：2 育人元素：无"
+        ),
+    )
+
+    summary = QueryRouter._chapter_summary(None, node)
+
+    assert summary == "1数字信息环境变化 2数字信息组织理论"

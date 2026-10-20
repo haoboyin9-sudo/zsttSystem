@@ -164,6 +164,53 @@ class DependencyExplainerTests(unittest.TestCase):
         self.assertEqual(result["status"], "degraded")
         self.assertEqual(result["error_code"], "NLI_VERIFICATION_FAILED")
         self.assertNotEqual(result["explanation"], "错误解释。")
+        self.assertIn("《管理运筹学》第一章的线性规划", result["explanation"])
+
+    def test_dependency_nli_prunes_unsupported_sentences(self) -> None:
+        paths = [
+            {
+                "nodes": [
+                    {"concept_id": "source", "name": "线性规划"},
+                    {"concept_id": "target", "name": "整数规划"},
+                ],
+                "relations": [],
+                "avg_confidence": 0.9,
+            }
+        ]
+        prerequisites = [
+            {
+                "course": "管理运筹学",
+                "chapter": "第一章",
+                "concepts": [{"name": "线性规划"}],
+                "max_confidence": 0.9,
+            }
+        ]
+        with (
+            patch.dict("os.environ", {"NLI_VERIFICATION_ENABLED": "true"}),
+            patch(
+                "src.online_service.dependency_explainer.generate_json_value",
+                return_value={"explanation": "整数规划建立在线性规划之上。学完会更顺。"},
+            ),
+            patch(
+                "src.online_service.dependency_explainer.verify_answer_with_nli",
+                return_value=(
+                    False,
+                    [
+                        {"sentence": "整数规划建立在线性规划之上。", "label": "Entailment", "score": 0.9},
+                        {"sentence": "学完会更顺。", "label": "Neutral", "score": 0.3},
+                    ],
+                ),
+            ),
+        ):
+            result = generate_dependency_explanation(
+                "整数规划需要哪些先修知识？",
+                paths,
+                prerequisites,
+                object(),
+            )
+
+        self.assertEqual(result["nli_status"], "pruned")
+        self.assertEqual(result["explanation"], "整数规划建立在线性规划之上。")
 
 
 if __name__ == "__main__":
