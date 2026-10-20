@@ -48,6 +48,17 @@ from src.online_service.course_dependency_service import (
     get_course_dependency_subgraph,
 )
 from src.online_service.data_import import ImportRejected, inventory, store_upload
+from src.online_service.persona import (
+    DEFAULT_PERSONA,
+    PERSONA_PROFILE_VERSION,
+    PERSONA_PROFILES,
+)
+from src.online_service.program_graph import (
+    build_program_graph,
+    corpus_overview,
+    load_concept_links,
+    program_catalog,
+)
 from src.online_service.query_router import QueryRouter
 from src.online_service.chroma_retriever import ChromaRetriever
 from src.utils.deepseek_client import create_deepseek_client
@@ -352,6 +363,102 @@ async def course_dependencies(
             status_code=503,
             detail="course dependency graph is unavailable",
         ) from exc
+
+
+def _concept_links() -> dict[str, Any] | None:
+    return load_concept_links(
+        config.concept_registry_path,
+        config.concept_verified_edge_path,
+        min_confidence=config.concept_verified_min_confidence,
+        loader=_safe_load_json,
+    )
+
+
+@app.get("/programs")
+async def list_programs() -> dict[str, Any]:
+    """Training plans grouped by college and major, for the graph selector."""
+    courses = await asyncio.to_thread(_load_json, config.courses_output_path, [])
+    return program_catalog(courses)
+
+
+@app.get("/programs/graph")
+async def program_graph(
+    program_name: str = Query(..., min_length=1, max_length=200),
+    knowledge: bool = Query(True),
+) -> dict[str, Any]:
+    """Semester-ordered prerequisite network of one training plan.
+
+    Built from ``courses.json`` and the verified concept artefacts, so it
+    stays available when Neo4j is down.
+    """
+
+    def build() -> dict[str, Any] | None:
+        courses = _load_json(config.courses_output_path, [])
+        return build_program_graph(
+            courses,
+            program_name,
+            concept_links=_concept_links() if knowledge else None,
+            include_knowledge=knowledge,
+        )
+
+    graph = await asyncio.to_thread(build)
+    if graph is None:
+        raise HTTPException(status_code=404, detail="program not found")
+    return graph
+
+
+@app.get("/overview")
+async def overview(fastapi_request: Request) -> dict[str, Any]:
+    """Corpus scale for the landing page; every number comes from artefacts."""
+
+    def build() -> dict[str, Any]:
+        courses = _load_json(config.courses_output_path, [])
+        return corpus_overview(courses, concept_links=_concept_links())
+
+    summary = await asyncio.to_thread(build)
+    retriever = getattr(fastapi_request.app.state, "vector_retriever", None)
+    tree = _doc_tree_health()
+    summary.update(
+        chunk_count=retriever.count if retriever and retriever.connected else None,
+        syllabus_count=tree.get("documents"),
+        neo4j="connected" if fastapi_request.app.state.neo4j_driver else "unavailable",
+        llm="configured" if fastapi_request.app.state.llm_client else "unavailable",
+    )
+    return summary
+
+
+@app.get("/personas")
+async def personas() -> dict[str, Any]:
+    """The retrieval and style profile behind each persona, as configured."""
+    return {
+        "version": PERSONA_PROFILE_VERSION,
+        "default": DEFAULT_PERSONA,
+        "profiles": {
+            key: {
+                "syllabus_top_k": profile["syllabus_top_k"],
+                "plan_top_k": profile["plan_top_k"],
+                "preferred_sections": list(profile["preferred_sections"]),
+                "source_boosts": dict(profile["source_boosts"]),
+                "prompt": profile["prompt"],
+            }
+            for key, profile in PERSONA_PROFILES.items()
+        },
+    }
+
+
+@app.get("/eval/latest")
+async def latest_eval_report() -> dict[str, Any]:
+    """Aggregate metrics of the newest evaluation report (no per-item rows)."""
+    reports = sorted(config.eval_report_dir.glob("*.json"))
+    for path in reversed(reports):
+        report = await asyncio.to_thread(_safe_load_json, path)
+        if isinstance(report, dict) and report.get("run_id"):
+            return {
+                key: value
+                for key, value in report.items()
+                if not key.endswith("_details")
+            }
+    raise HTTPException(status_code=404, detail="no evaluation report")
 
 
 @app.get("/dependency")

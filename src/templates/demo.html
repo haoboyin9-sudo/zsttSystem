@@ -1,641 +1,625 @@
-    <!doctype html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>跨课程知识问答系统 本地演示</title>
-        <style>
-            :root {
-                --primary: #4f46e5;
-                --primary-dark: #4338ca;
-                --primary-light: #eef2ff;
-                --secondary: #06b6d4;
-                --secondary-light: #d1fae5;
-                --accent: #8b5cf6;
-                --bg-gradient-start: #f0f4ff;
-                --bg-gradient-end: #f5f7fa;
-                --panel: #ffffff;
-                --border: #e5e7eb;
-                --border-light: #f3f4f6;
-                --text: #111827;
-                --text-secondary: #4b5563;
-                --text-muted: #9ca3af;
-                --success: #10b981;
-                --success-light: #d1fae5;
-                --warning: #f59e0b;
-                --warning-light: #fef3c7;
-                --error: #ef4444;
-                --error-light: #fee2e2;
-            }
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            [hidden] {
-                display: none !important;
-            }
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-                min-height: 100vh;
-                color: var(--text);
-                overflow-x: hidden;
-            }
-            .animated-bg {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(135deg, #f0f4ff 0%, #f5f7fa 50%, #f0f4ff 100%);
-                background-size: 400% 400%;
-                animation: gradientShift 15s ease infinite;
-                z-index: -1;
-            }
-            .floating-shapes {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                overflow: hidden;
-                z-index: -1;
-                pointer-events: none;
-            }
-            .shape {
-                position: absolute;
-                border-radius: 50%;
-                opacity: 0.15;
-                animation: float 12s ease-in-out infinite;
-            }
-            .shape:nth-child(1) {
-                width: 200px;
-                height: 200px;
-                background: var(--primary);
-                top: 10%;
-                left: -10%;
-                animation-delay: 0s;
-            }
-            .shape:nth-child(2) {
-                width: 150px;
-                height: 150px;
-                background: var(--secondary);
-                top: 60%;
-                right: -8%;
-                animation-delay: -3s;
-            }
-            .shape:nth-child(3) {
-                width: 180px;
-                height: 180px;
-                background: var(--accent);
-                bottom: 10%;
-                left: 20%;
-                animation-delay: -6s;
-            }
-            .shape:nth-child(4) {
-                width: 120px;
-                height: 120px;
-                background: var(--success);
-                top: 30%;
-                right: 30%;
-                animation-delay: -9s;
-            }
-            .wrap {
-                position: relative;
-                max-width: 800px;
-                margin: 0 auto;
-                padding: 40px 24px;
-                z-index: 1;
-            }
-            .header {
-                text-align: center;
-                margin-bottom: 40px;
-            }
-            .header-icon {
-                width: 80px;
-                height: 80px;
-                margin: 0 auto 20px;
-                background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-                border-radius: 20px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 10px 40px rgba(79, 70, 229, 0.3);
-                animation: fadeInUp 0.6s ease-out, iconFloat 4s ease-in-out infinite;
-                position: relative;
-            }
-            .header-icon::before {
-                content: "?";
-                font-size: 40px;
-                color: white;
-                font-weight: bold;
-            }
-            .header-icon::after {
-                content: "";
-                position: absolute;
-                width: 100%;
-                height: 100%;
-                border-radius: 20px;
-                background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-                opacity: 0.5;
-                filter: blur(20px);
-                animation: pulse 2s ease-in-out infinite;
-            }
-            .header h1 {
-                font-size: 28px;
-                font-weight: 700;
-                color: var(--text);
-                margin-bottom: 12px;
-                animation: fadeInUp 0.6s ease-out 0.1s both;
-            }
-            .header p {
-                font-size: 16px;
-                color: var(--text-secondary);
-                animation: fadeInUp 0.6s ease-out 0.2s both;
-            }
-            .panel {
-                background: var(--panel);
-                border-radius: 24px;
-                padding: 32px;
-                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
-                animation: fadeInUp 0.6s ease-out 0.3s both;
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
-                position: relative;
-                overflow: hidden;
-            }
-            .panel::before {
-                content: "";
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                height: 3px;
-                background: linear-gradient(90deg, var(--primary), var(--secondary), var(--accent));
-                background-size: 200% 100%;
-                animation: shimmer 3s linear infinite;
-            }
-            .panel:hover {
-                transform: translateY(-4px);
-                box-shadow: 0 35px 60px -15px rgba(0, 0, 0, 0.2);
-            }
-            .input-group {
-                margin-bottom: 24px;
-            }
-            .input-group label {
-                display: block;
-                font-size: 14px;
-                font-weight: 500;
-                color: var(--text-secondary);
-                margin-bottom: 12px;
-                animation: fadeInUp 0.6s ease-out 0.4s both;
-            }
-            .persona-select {
-                width: 100%;
-                margin-bottom: 20px;
-                border: 2px solid var(--border);
-                border-radius: 12px;
-                padding: 11px 14px;
-                color: var(--text-primary);
-                background: white;
-                font: inherit;
-            }
-            .persona-select:focus {
-                outline: none;
-                border-color: var(--primary);
-                box-shadow: 0 0 0 4px var(--primary-light);
-            }
-            textarea {
-                width: 100%;
-                min-height: 140px;
-                border-radius: 16px;
-                border: 2px solid var(--border);
-                padding: 16px;
-                font-size: 16px;
-                font-family: inherit;
-                background: linear-gradient(180deg, white 0%, var(--bg-gradient-end) 100%);
-                resize: vertical;
-                transition: all 0.3s ease;
-                line-height: 1.6;
-                animation: fadeInUp 0.6s ease-out 0.5s both;
-                position: relative;
-            }
-            textarea:focus {
-                outline: none;
-                border-color: var(--primary);
-                box-shadow: 0 0 0 4px var(--primary-light), 0 0 30px rgba(79, 70, 229, 0.2);
-                background: white;
-                transform: translateY(-2px);
-            }
-            textarea::placeholder {
-                color: var(--text-muted);
-            }
-            .btn {
-                width: 100%;
-                height: 52px;
-                border: none;
-                border-radius: 16px;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-                animation: fadeInUp 0.6s ease-out 0.6s both;
-                position: relative;
-                overflow: hidden;
-            }
-            .btn-primary {
-                background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-                color: white;
-                box-shadow: 0 4px 20px rgba(79, 70, 229, 0.4);
-            }
-            .btn-primary::before {
-                content: "";
-                position: absolute;
-                top: 0;
-                left: -100%;
-                width: 100%;
-                height: 100%;
-                background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-                transition: left 0.5s ease;
-            }
-            .btn-primary:hover::before {
-                left: 100%;
-            }
-            .btn-primary:hover:not(:disabled) {
-                transform: translateY(-3px);
-                box-shadow: 0 8px 30px rgba(79, 70, 229, 0.5);
-            }
-            .btn-primary:active:not(:disabled) {
-                transform: translateY(-1px);
-            }
-            .btn:disabled {
-                opacity: 0.6;
-                cursor: not-allowed;
-            }
-            .btn-loading::after {
-                content: "";
-                width: 20px;
-                height: 20px;
-                border: 2px solid white;
-                border-top-color: transparent;
-                border-radius: 50%;
-                animation: spin 0.8s linear infinite;
-            }
-            .status-bar {
-                margin-top: 20px;
-                padding: 16px 20px;
-                border-radius: 12px;
-                font-size: 14px;
-                font-weight: 500;
-                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-                animation: fadeInUp 0.6s ease-out 0.7s both;
-                position: relative;
-                overflow: hidden;
-            }
-            .status-bar::before {
-                content: "";
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 4px;
-                height: 100%;
-                border-radius: 0 2px 2px 0;
-            }
-            .status-waiting {
-                background: var(--border-light);
-                color: var(--text-secondary);
-            }
-            .status-waiting::before {
-                background: var(--text-muted);
-            }
-            .status-querying {
-                background: var(--warning-light);
-                color: var(--warning);
-            }
-            .status-querying::before {
-                background: var(--warning);
-                animation: statusPulse 1s ease-in-out infinite;
-            }
-            .status-done {
-                background: var(--success-light);
-                color: var(--success);
-            }
-            .status-done::before {
-                background: var(--success);
-            }
-            .status-failed {
-                background: var(--error-light);
-                color: var(--error);
-            }
-            .status-failed::before {
-                background: var(--error);
-            }
-            .result-container {
-                margin-top: 20px;
-                animation: fadeInUp 0.6s ease-out 0.8s both;
-            }
-            .result-header {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin-bottom: 16px;
-                font-size: 14px;
-                font-weight: 600;
-                color: var(--text-secondary);
-                position: relative;
-            }
-            .result-header::before {
-                content: "";
-                width: 4px;
-                height: 16px;
-                background: linear-gradient(180deg, var(--primary) 0%, var(--secondary) 100%);
-                border-radius: 2px;
-            }
-            .result-header::after {
-                content: "";
-                position: absolute;
-                left: 12px;
-                right: 0;
-                top: 50%;
-                height: 1px;
-                background: linear-gradient(90deg, var(--border), transparent);
-                transform: translateY(-50%);
-            }
-            .result {
-                background: linear-gradient(180deg, white 0%, var(--bg-gradient-end) 100%);
-                border: 1px solid var(--border);
-                border-radius: 16px;
-                padding: 20px;
-                font-size: 15px;
-                line-height: 1.8;
-                white-space: pre-wrap;
-                min-height: 120px;
-                transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-                position: relative;
-            }
-            .result.empty {
-                color: var(--text-muted);
-                font-style: italic;
-            }
-            .result:not(.empty) {
-                border-color: var(--primary);
-                box-shadow: 0 0 20px rgba(79, 70, 229, 0.1);
-            }
-            .citations {
-                margin-top: 20px;
-            }
-            .citations-title {
-                margin-bottom: 10px;
-                color: var(--text-secondary);
-                font-size: 14px;
-                font-weight: 600;
-            }
-            .citation-list {
-                display: grid;
-                gap: 10px;
-            }
-            .feedback {
-                margin-top: 16px;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                flex-wrap: wrap;
-            }
-            .feedback-title {
-                color: var(--text-secondary);
-                font-size: 14px;
-                font-weight: 600;
-            }
-            .feedback-btn {
-                padding: 6px 14px;
-                border: 1px solid var(--border);
-                border-radius: 999px;
-                background: var(--primary-light);
-                color: var(--text);
-                font-size: 14px;
-                cursor: pointer;
-                transition: border-color 0.2s, transform 0.1s;
-            }
-            .feedback-btn:hover:not(:disabled) {
-                border-color: var(--primary);
-            }
-            .feedback-btn:active:not(:disabled) {
-                transform: translateY(1px);
-            }
-            .feedback-btn:disabled {
-                opacity: 0.5;
-                cursor: default;
-            }
-            .feedback-note {
-                color: var(--text-secondary);
-                font-size: 13px;
-            }
-            .citation-card {
-                padding: 12px 14px;
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                background: var(--primary-light);
-            }
-            .citation-name {
-                color: var(--text);
-                font-weight: 600;
-            }
-            .citation-meta {
-                margin-top: 4px;
-                color: var(--text-secondary);
-                font-size: 13px;
-                overflow-wrap: anywhere;
-            }
-            .dependency-panel {
-                margin-top: 22px;
-                padding: 18px;
-                border: 1px solid var(--border);
-                border-radius: 16px;
-                background: rgba(255, 255, 255, 0.78);
-            }
-            .dependency-title {
-                color: var(--text);
-                font-size: 15px;
-                font-weight: 700;
-            }
-            .dependency-controls {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 12px;
-                align-items: center;
-                margin: 14px 0;
-                color: var(--text-secondary);
-                font-size: 13px;
-            }
-            .dependency-controls label {
-                display: inline-flex;
-                gap: 6px;
-                align-items: center;
-            }
-            .dependency-controls select {
-                padding: 6px 9px;
-                border: 1px solid var(--border);
-                border-radius: 8px;
-                background: white;
-                color: var(--text);
-            }
-            .dependency-notice,
-            .plan-warning {
-                margin: 10px 0;
-                padding: 10px 12px;
-                border-radius: 10px;
-                background: #fff7ed;
-                color: #9a3412;
-                font-size: 13px;
-            }
-            .dependency-graph {
-                min-height: 90px;
-                overflow: auto;
-                padding: 12px;
-                border-radius: 12px;
-                background: white;
-                text-align: center;
-            }
-            .dependency-graph svg {
-                max-width: 100%;
-                height: auto;
-            }
-            .learning-plan {
-                margin-top: 16px;
-            }
-            .plan-title {
-                margin-bottom: 8px;
-                color: var(--text-secondary);
-                font-size: 14px;
-                font-weight: 700;
-            }
-            .plan-layers {
-                display: grid;
-                gap: 8px;
-            }
-            .plan-layer {
-                padding: 10px 12px;
-                border-left: 3px solid var(--primary);
-                border-radius: 8px;
-                background: var(--primary-light);
-                color: var(--text);
-                font-size: 13px;
-            }
-            .dependency-edges {
-                margin-top: 14px;
-                color: var(--text-muted);
-                font-size: 12px;
-            }
-            .dependency-edge-list {
-                margin: 8px 0 0;
-                padding-left: 20px;
-            }
-            .dependency-edge-list li {
-                margin: 5px 0;
-            }
-            .debug-details {
-                margin-top: 16px;
-                color: var(--text-muted);
-                font-size: 12px;
-            }
-            .debug-details summary {
-                cursor: pointer;
-                user-select: none;
-            }
-            .debug-content {
-                margin-top: 8px;
-                white-space: pre-wrap;
-            }
-            @keyframes gradientShift {
-                0%, 100% { background-position: 0% 50%; }
-                50% { background-position: 100% 50%; }
-            }
-            @keyframes float {
-                0%, 100% { transform: translateY(0px) rotate(0deg); }
-                50% { transform: translateY(-30px) rotate(5deg); }
-            }
-            @keyframes fadeInUp {
-                from {
-                    opacity: 0;
-                    transform: translateY(20px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-            @keyframes spin {
-                to {
-                    transform: rotate(360deg);
-                }
-            }
-            @keyframes iconFloat {
-                0%, 100% { transform: translateY(0px); }
-                50% { transform: translateY(-8px); }
-            }
-            @keyframes pulse {
-                0%, 100% { opacity: 0.5; transform: scale(1); }
-                50% { opacity: 0.8; transform: scale(1.1); }
-            }
-            @keyframes shimmer {
-                0% { background-position: -200% 0; }
-                100% { background-position: 200% 0; }
-            }
-            @keyframes statusPulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.5; }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="animated-bg"></div>
-        <div class="floating-shapes">
-            <div class="shape"></div>
-            <div class="shape"></div>
-            <div class="shape"></div>
-            <div class="shape"></div>
-        </div>
-        <div class="wrap">
-            <div class="header">
-                <div class="header-icon"></div>
-                <h1>跨课程知识问答系统</h1>
-                <p>基于课程大纲的智能问答助手</p>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=1280">
+    <title>跨课程知识问答与选课路径系统</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --paper: #f6f4ee;
+            --surface: #ffffff;
+            --surface-2: #fbfaf7;
+            --ink: #1d2129;
+            --ink-2: #474c56;
+            --ink-3: #7a7f88;
+            --rule: #d9d5c9;
+            --rule-2: #ebe8df;
+            --accent: #1f3a5f;
+            --accent-2: #2d5689;
+            --accent-soft: #e9eef5;
+            --ok: #2f6b3a;
+            --ok-soft: #e6f0e7;
+            --warn: #8a5a00;
+            --warn-soft: #f8f0dc;
+            --bad: #a4262c;
+            --bad-soft: #f8e7e7;
+            /* 课程类别：前三个分类色取自已验证的分类色板前三位（全两两对比通过），
+               其余类别用中性灰，并始终配合文字标签，不单靠颜色区分。 */
+            --g-foundation: #2a78d6;
+            --g-core: #eb6834;
+            --g-practice: #1baf7a;
+            --g-elective: #8b9099;
+            --g-public: #b9bcc3;
+            --g-minor: #8b9099;
+            --g-other: #8b9099;
+            --edge-prereq: #2b2f36;
+            --edge-knowledge: #8f8a7c;
+            --serif: "Noto Serif SC", "Source Han Serif SC", "Source Han Serif CN", "Songti SC", "STSong", "SimSun", serif;
+            --sans: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+            --mono: "JetBrains Mono", "Consolas", "SFMono-Regular", monospace;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        [hidden] { display: none !important; }
+        html { background: var(--paper); }
+        body {
+            min-width: 1200px;
+            background: var(--paper);
+            color: var(--ink);
+            font-family: var(--sans);
+            font-size: 15px;
+            line-height: 1.7;
+        }
+        a { color: var(--accent-2); }
+        button, select, input, textarea { font: inherit; color: inherit; }
+        .tabular { font-variant-numeric: tabular-nums; }
+
+        /* ---------- 顶栏 ---------- */
+        .topbar {
+            position: sticky; top: 0; z-index: 20;
+            background: var(--surface);
+            border-bottom: 1px solid var(--rule);
+        }
+        .topbar-inner {
+            max-width: 1440px; margin: 0 auto; padding: 0 40px;
+            height: 64px; display: flex; align-items: center; gap: 40px;
+        }
+        .brand { display: flex; align-items: baseline; gap: 14px; white-space: nowrap; }
+        .brand-name { font-family: var(--serif); font-size: 20px; font-weight: 700; letter-spacing: 0.02em; }
+        .brand-en { font-size: 12px; color: var(--ink-3); letter-spacing: 0.04em; }
+        .nav { display: flex; gap: 4px; margin-left: auto; height: 100%; }
+        .nav a {
+            display: flex; align-items: center; padding: 0 18px; height: 100%;
+            color: var(--ink-2); text-decoration: none; font-size: 15px; white-space: nowrap;
+            border-bottom: 2px solid transparent;
+        }
+        .nav a:hover { color: var(--ink); background: var(--surface-2); }
+        .nav a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+        @media (max-width: 1380px) {
+            .brand-en { display: none; }
+            .topbar-inner { gap: 24px; }
+            .nav a { padding: 0 14px; }
+        }
+        .status-dots { display: flex; gap: 14px; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+        .dot { display: inline-flex; align-items: center; gap: 6px; }
+        .dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--rule); }
+        .dot[data-state="ok"]::before { background: var(--ok); }
+        .dot[data-state="off"]::before { background: var(--bad); }
+
+        /* ---------- 通用版式 ---------- */
+        main { max-width: 1440px; margin: 0 auto; padding: 36px 40px 64px; }
+        .view { display: none; }
+        .view.active { display: block; }
+        .section-head { display: flex; align-items: baseline; gap: 16px; margin: 0 0 18px; }
+        .section-no { font-family: var(--serif); color: var(--ink-3); font-size: 15px; }
+        h2.section-title { font-family: var(--serif); font-size: 22px; font-weight: 700; }
+        .section-sub { color: var(--ink-3); font-size: 14px; }
+        h3 { font-family: var(--serif); font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+        .card {
+            background: var(--surface); border: 1px solid var(--rule);
+            border-radius: 6px; padding: 24px 28px;
+        }
+        .muted { color: var(--ink-3); }
+        .small { font-size: 13px; }
+        .btn {
+            text-decoration: none;
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            height: 38px; padding: 0 18px; border-radius: 4px; cursor: pointer;
+            border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+            font-size: 14px; white-space: nowrap;
+        }
+        .btn:hover:not(:disabled) { border-color: var(--ink-3); }
+        .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+        .btn-primary:hover:not(:disabled) { background: var(--accent-2); border-color: var(--accent-2); }
+        .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .btn-link { border: none; background: none; color: var(--accent-2); padding: 0; height: auto; cursor: pointer; }
+        .btn-link:hover { text-decoration: underline; }
+        .tag {
+            display: inline-block; padding: 1px 8px; border-radius: 3px; font-size: 12px;
+            border: 1px solid var(--rule); color: var(--ink-2); background: var(--surface-2);
+            line-height: 1.6; white-space: nowrap;
+        }
+        .tag-accent { border-color: #c5d1e2; background: var(--accent-soft); color: var(--accent); }
+        table.academic { width: 100%; border-collapse: collapse; font-size: 14px; }
+        table.academic caption {
+            caption-side: top; text-align: left; font-family: var(--serif);
+            font-size: 14px; color: var(--ink-2); padding-bottom: 8px;
+        }
+        table.academic th, table.academic td { padding: 8px 12px; text-align: left; vertical-align: top; }
+        table.academic thead th { border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; }
+        table.academic tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+        table.academic td.num, table.academic th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        figure { margin: 0; }
+        figcaption { font-family: var(--serif); font-size: 14px; color: var(--ink-2); text-align: center; margin-top: 10px; }
+
+        /* ---------- 概览 ---------- */
+        .hero { display: grid; grid-template-columns: 1fr 420px; gap: 36px; align-items: start; }
+        .kicker { font-size: 13px; color: var(--ink-3); letter-spacing: 0.08em; margin-bottom: 10px; }
+        .hero h1 { font-family: var(--serif); font-size: 34px; line-height: 1.35; font-weight: 700; margin-bottom: 6px; }
+        .hero .en-title { font-size: 15px; color: var(--ink-2); font-style: italic; margin-bottom: 22px; }
+        .abstract { border-left: 3px solid var(--accent); padding: 4px 0 4px 18px; margin-bottom: 14px; }
+        .abstract-label { font-family: var(--serif); font-weight: 700; margin-right: 6px; }
+        .abstract p { color: var(--ink-2); text-align: justify; }
+        .keywords { font-size: 14px; color: var(--ink-2); margin-bottom: 22px; }
+        .keywords b { font-family: var(--serif); }
+        .hero-actions { display: flex; gap: 12px; }
+        .scale-card h3 { display: flex; justify-content: space-between; align-items: baseline; }
+        .scale-grid { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--rule-2); }
+        .scale-item { padding: 12px 4px; border-bottom: 1px solid var(--rule-2); }
+        .scale-item:nth-child(odd) { border-right: 1px solid var(--rule-2); padding-right: 14px; }
+        .scale-item:nth-child(even) { padding-left: 16px; }
+        .scale-value { font-family: var(--serif); font-size: 26px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .scale-label { font-size: 13px; color: var(--ink-3); }
+        .scale-foot { font-size: 12px; color: var(--ink-3); margin-top: 10px; }
+        .block { margin-top: 44px; }
+        .cap-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+        .cap {
+            background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
+            padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 8px;
+        }
+        .cap-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+        .cap-title { font-family: var(--serif); font-size: 16px; font-weight: 700; }
+        .cap-desc { font-size: 13.5px; color: var(--ink-2); flex: 1; }
+        .cap-src { font-size: 12px; color: var(--ink-3); }
+        .cap-try {
+            text-align: left; font-size: 13px; color: var(--accent-2); background: var(--surface-2);
+            border: 1px dashed var(--rule); border-radius: 4px; padding: 6px 10px; cursor: pointer;
+        }
+        .cap-try:hover { border-style: solid; border-color: var(--accent-2); }
+        .arch { padding: 20px 24px 16px; }
+        .arch svg { width: 100%; height: auto; display: block; }
+        .arch text { font-family: var(--sans); }
+        .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .principle { border-top: 2px solid var(--ink); padding-top: 12px; }
+        .principle-no { font-family: var(--serif); color: var(--ink-3); font-size: 13px; }
+        .principle h4 { font-family: var(--serif); font-size: 16px; margin: 2px 0 6px; }
+        .principle p { font-size: 14px; color: var(--ink-2); }
+
+        /* ---------- 问答 ---------- */
+        .qa { display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; }
+        .qa-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 88px; }
+        .persona-cards { display: flex; flex-direction: column; gap: 8px; }
+        .persona-card {
+            text-align: left; width: 100%; cursor: pointer;
+            background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
+            padding: 12px 14px; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+        }
+        .persona-card:hover { border-color: var(--ink-3); }
+        .persona-card[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: #fcfdfe; }
+        .persona-name { font-family: var(--serif); font-weight: 700; font-size: 16px; }
+        .persona-who { grid-column: 1 / -1; font-size: 13px; color: var(--ink-2); }
+        .persona-detail { font-size: 13px; }
+        .persona-detail dl { display: grid; grid-template-columns: 76px 1fr; gap: 6px 10px; }
+        .persona-detail dt { color: var(--ink-3); }
+        .persona-detail dd { color: var(--ink-2); }
+        .examples { display: flex; flex-direction: column; gap: 6px; }
+        .example {
+            display: flex; gap: 10px; align-items: baseline; text-align: left; cursor: pointer;
+            background: var(--surface-2); border: 1px solid var(--rule-2); border-radius: 4px; padding: 8px 10px;
+            font-size: 14px;
+        }
+        .example:hover { border-color: var(--accent-2); background: var(--surface); }
+        .example .tag { flex: none; }
+        .qa-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+        .ask-row { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+        .ask-row label { font-size: 14px; color: var(--ink-2); }
+        .persona-select { height: 34px; border: 1px solid var(--rule); border-radius: 4px; padding: 0 8px; background: var(--surface); }
+        textarea#query {
+            width: 100%; min-height: 96px; resize: vertical; padding: 12px 14px; font-size: 16px; line-height: 1.6;
+            border: 1px solid var(--rule); border-radius: 4px; background: var(--surface-2);
+        }
+        textarea#query:focus, .persona-select:focus, .graph-controls select:focus, .graph-controls input:focus {
+            outline: 2px solid var(--accent-soft); border-color: var(--accent-2); background: var(--surface);
+        }
+        .ask-actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+        .compare-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-2); cursor: pointer; }
+        .hint { font-size: 12.5px; color: var(--ink-3); margin-left: auto; }
+        .status-bar { font-size: 13px; padding: 6px 12px; border-radius: 4px; border-left: 3px solid var(--rule); background: var(--surface-2); color: var(--ink-2); }
+        .status-querying { border-left-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+        .status-done { border-left-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+        .status-failed { border-left-color: var(--bad); background: var(--bad-soft); color: var(--bad); }
+        .answer-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        .answer-head h3 { margin: 0 8px 0 0; }
+        .result { white-space: pre-wrap; font-size: 15.5px; line-height: 1.85; min-height: 96px; }
+        .result.empty { color: var(--ink-3); }
+        .citations { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule-2); }
+        .citations-title { font-family: var(--serif); font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+        .citation-list { list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; color: var(--ink-2); }
+        .citation-card { display: grid; grid-template-columns: 34px 1fr; }
+        .citation-no { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+        .citation-name { color: var(--ink); }
+        .feedback { margin-top: 16px; display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ink-2); }
+        .feedback-btn { height: 30px; padding: 0 12px; font-size: 13px; }
+        .feedback-note { color: var(--ink-3); }
+        .dependency-panel h3 { margin-bottom: 6px; }
+        .dependency-controls { display: flex; gap: 20px; align-items: center; font-size: 13.5px; color: var(--ink-2); margin: 8px 0 12px; }
+        .dependency-controls select { height: 30px; border: 1px solid var(--rule); border-radius: 4px; padding: 0 6px; background: var(--surface); }
+        .dependency-notice { font-size: 13px; color: var(--warn); background: var(--warn-soft); padding: 6px 10px; border-radius: 4px; margin-bottom: 10px; }
+        .dependency-graph { overflow-x: auto; border: 1px solid var(--rule-2); border-radius: 4px; padding: 12px; background: var(--surface-2); min-height: 80px; }
+        .dependency-graph svg { max-width: 100%; height: auto; }
+        .learning-plan { margin-top: 14px; font-size: 14px; }
+        .plan-title { font-family: var(--serif); font-weight: 700; margin-bottom: 6px; }
+        .plan-warning { color: var(--warn); font-size: 13px; }
+        .plan-layers { display: flex; flex-direction: column; gap: 4px; }
+        .plan-layer { padding: 6px 10px; border-left: 2px solid var(--accent-2); background: var(--surface-2); }
+        .dependency-edges { margin-top: 12px; font-size: 13.5px; }
+        .dependency-edges summary, .debug-details summary { cursor: pointer; color: var(--ink-2); }
+        .dependency-edge-list { margin: 6px 0 0 20px; color: var(--ink-2); }
+        .debug-details { font-size: 13px; }
+        .debug-content { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin-top: 8px; color: var(--ink-2); }
+        .debug-content dt { color: var(--ink-3); }
+        .compare-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .compare-col { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 16px 18px; min-width: 0; }
+        .compare-col h4 { font-family: var(--serif); font-size: 16px; display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+        .compare-meta { font-size: 12.5px; color: var(--ink-3); margin-bottom: 8px; }
+        .compare-answer { white-space: pre-wrap; font-size: 14px; line-height: 1.75; }
+        .compare-note { font-size: 13px; color: var(--ink-2); background: var(--accent-soft); border-radius: 4px; padding: 8px 12px; }
+
+        /* ---------- 专业课程图谱 ---------- */
+        .graph-shell { padding: 0; overflow: hidden; }
+        .graph-bar {
+            display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+            padding: 12px 20px; border-bottom: 1px solid var(--rule-2); font-size: 14px; color: var(--ink-2);
+        }
+        .graph-bar-2 { padding: 8px 20px; gap: 14px; background: var(--surface-2); }
+        .graph-bar .spacer { flex: 1; }
+        .bar-field { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+        .bar-field select, #graph-search {
+            height: 32px; border: 1px solid var(--rule); border-radius: 4px; padding: 0 8px; background: var(--surface);
+        }
+        #graph-search { width: 180px; }
+        .bar-sep { width: 1px; height: 20px; background: var(--rule); }
+        .group-filters { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+        .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+        .seg button {
+            height: 30px; padding: 0 10px; border: 1px solid var(--rule); border-radius: 4px;
+            background: var(--surface); font-size: 13px; cursor: pointer;
+        }
+        .seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+        .check { display: inline-flex; gap: 6px; align-items: center; font-size: 13.5px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+        .check input:disabled + .legend-line, .check input:disabled ~ * { opacity: 0.5; }
+        .legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; border: 1px solid rgba(0,0,0,0.08); }
+        .legend-count { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+        .legend-line { width: 24px; height: 0; flex: none; border-top: 2px solid var(--edge-prereq); }
+        .legend-line.knowledge { border-top: 2px dashed var(--edge-knowledge); }
+        .graph-head { display: flex; align-items: center; gap: 20px; padding: 12px 20px 10px; }
+        .graph-head > div:first-child { white-space: nowrap; }
+        .graph-head .graph-stats { flex: 1; }
+        .graph-title { font-family: var(--serif); font-weight: 700; color: var(--ink); font-size: 17px; margin-right: 8px; }
+        .graph-stats { display: flex; gap: 18px; font-size: 13.5px; color: var(--ink-2); flex-wrap: wrap; justify-content: flex-end; }
+        .graph-stats b { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 600; }
+        .zoom { display: inline-flex; gap: 4px; }
+        .zoom button { width: 30px; height: 30px; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); cursor: pointer; }
+        .graph-body { position: relative; border-top: 1px solid var(--rule-2); }
+        .graph-scroll { overflow: auto; height: calc(100vh - 300px); min-height: 520px; background: var(--surface-2); }
+        .graph-foot {
+            display: flex; flex-direction: column; gap: 2px; padding: 10px 20px 12px;
+            border-top: 1px solid var(--rule-2); font-size: 12.5px; color: var(--ink-3);
+        }
+        #program-svg { display: block; }
+        #program-svg .col-band { fill: #f1efe8; }
+        #program-svg .col-label { font-family: var(--serif); font-size: 13px; fill: var(--ink-2); font-weight: 700; }
+        #program-svg .col-count { font-size: 11px; fill: var(--ink-3); }
+        #program-svg .node { cursor: pointer; }
+        #program-svg .node:focus { outline: none; }
+        #program-svg .node:focus-visible rect.box { stroke: var(--accent-2); stroke-width: 2; }
+        #program-svg .node rect.box { fill: #fff; stroke: var(--rule); stroke-width: 1; }
+        #program-svg .node.external rect.box { stroke-dasharray: 4 3; fill: #fbfaf6; stroke: var(--ink-3); }
+        #program-svg .node text.name { font-size: 12.5px; fill: var(--ink); }
+        #program-svg .node text.code { font-size: 10px; fill: var(--ink-3); font-family: var(--mono); }
+        #program-svg .node.isolated text.name { fill: var(--ink-3); }
+        #program-svg .node.selected rect.box { stroke: var(--accent); stroke-width: 2; }
+        #program-svg .node.match rect.box { stroke: var(--accent-2); stroke-width: 2; }
+        #program-svg .edge { fill: none; }
+        #program-svg .edge.prerequisite { stroke: var(--edge-prereq); stroke-width: 1.6; }
+        #program-svg .edge.knowledge { stroke: var(--edge-knowledge); stroke-dasharray: 5 4; }
+        #program-svg .edge-hit { fill: none; stroke: transparent; stroke-width: 10; cursor: help; }
+        #program-svg.focus .node:not(.related) { opacity: 0.2; }
+        #program-svg.focus .edge:not(.related) { opacity: 0.07; }
+        #program-svg.focus .edge.related.prerequisite { stroke: var(--accent); stroke-width: 2.4; }
+        #program-svg.focus .edge.related.knowledge { stroke: #6d5f3f; }
+        .graph-empty { padding: 60px; text-align: center; color: var(--ink-3); }
+        .tooltip {
+            position: fixed; z-index: 50; pointer-events: none; max-width: 320px;
+            background: var(--ink); color: #f4f2ec; font-size: 12.5px; line-height: 1.6;
+            padding: 8px 10px; border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+        }
+        .tooltip b { color: #fff; }
+        .detail-drawer {
+            position: absolute; top: 0; right: 0; bottom: 0; width: 340px; overflow: auto;
+            background: var(--surface); border-left: 1px solid var(--rule); box-shadow: -8px 0 24px rgba(29,33,41,0.08);
+            padding: 20px 22px;
+        }
+        .drawer-close {
+            position: absolute; top: 10px; right: 12px; width: 28px; height: 28px; border: none; background: none;
+            font-size: 20px; color: var(--ink-3); cursor: pointer;
+        }
+        .drawer-close:hover { color: var(--ink); }
+        .detail-drawer .course-title { font-family: var(--serif); font-size: 19px; font-weight: 700; line-height: 1.4; padding-right: 24px; }
+        .detail-drawer .course-en { font-size: 13px; color: var(--ink-3); font-style: italic; margin-bottom: 10px; }
+        .detail-meta { display: grid; grid-template-columns: 72px 1fr; gap: 4px 10px; font-size: 13.5px; margin: 12px 0 16px; }
+        .detail-meta dt { color: var(--ink-3); }
+        .rel-list { list-style: none; font-size: 13.5px; margin-bottom: 14px; }
+        .rel-list li { padding: 4px 0; border-bottom: 1px dotted var(--rule-2); }
+        .rel-list .why { display: block; font-size: 12px; color: var(--ink-3); }
+        .rel-title { font-family: var(--serif); font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+        .detail-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+        .table-view { margin-top: 16px; padding: 14px 20px; }
+        .table-view summary { cursor: pointer; font-size: 14px; color: var(--ink-2); }
+        .table-scroll { max-height: 360px; overflow: auto; margin-top: 10px; }
+
+        /* ---------- 方法与评测 ---------- */
+        .method-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+        .metric-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
+        .metric { border-top: 2px solid var(--ink); padding-top: 10px; }
+        .metric-value { font-family: var(--serif); font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+        .metric-label { font-size: 13px; color: var(--ink-3); }
+        .metric-note { font-size: 12px; color: var(--ink-2); }
+        .report-meta { font-size: 13px; color: var(--ink-3); margin-bottom: 14px; }
+        .notes { font-size: 14px; color: var(--ink-2); padding-left: 20px; }
+        .notes li { margin-bottom: 6px; }
+        footer { border-top: 1px solid var(--rule); margin-top: 40px; padding: 20px 40px; font-size: 12.5px; color: var(--ink-3); text-align: center; }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <span class="brand-name">跨课程知识问答与选课路径系统</span>
+                <span class="brand-en">zsttSystem · RAG + Knowledge Graph</span>
             </div>
-            <div class="panel">
-                <div class="input-group">
-                    <label for="persona">我是</label>
-                    <select id="persona" class="persona-select">
-                        <option value="student" selected>学生</option>
-                        <option value="teacher">教师</option>
-                        <option value="visitor">访客</option>
-                    </select>
+            <nav class="nav" aria-label="主导航">
+                <a href="#overview" data-view="overview">系统概览</a>
+                <a href="#qa" data-view="qa">智能问答</a>
+                <a href="#graph" data-view="graph">专业课程图谱</a>
+                <a href="#method" data-view="method">方法与评测</a>
+            </nav>
+            <div class="status-dots" aria-label="后端状态">
+                <span class="dot" id="dot-chroma">向量库</span>
+                <span class="dot" id="dot-neo4j">图数据库</span>
+                <span class="dot" id="dot-llm">大模型</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- ===================== 系统概览 ===================== -->
+        <section class="view" id="view-overview" aria-labelledby="overview-title">
+            <div class="hero">
+                <div>
+                    <div class="kicker">大学生创新训练计划项目 · 课程知识服务</div>
+                    <h1 id="overview-title">面向培养方案与教学大纲的<br>跨课程知识问答与选课路径系统</h1>
+                    <div class="en-title">A retrieval-augmented, knowledge-graph-grounded question answering system for curriculum documents</div>
+                    <div class="abstract">
+                        <p><span class="abstract-label">摘要</span>本系统以学院各专业的培养方案（XLSX）与课程教学大纲（DOCX）为语料，离线完成结构感知切分、概念抽取与依赖验证、课程知识图谱构建和向量与词面双路索引；在线阶段先识别问题意图，再分别走结构化查询、章节目录、向量检索或图谱推理路径，最后由大模型基于证据生成回答，并逐句做蕴含校验。证据不足时系统明确拒答，而不是编造学分、教师或先修关系；所有回答附带可追溯到原始文件与章节的引用。</p>
+                    </div>
+                    <div class="keywords"><b>关键词：</b>检索增强生成；课程知识图谱；先修关系；结构感知检索；拒答机制</div>
+                    <div class="hero-actions">
+                        <a class="btn btn-primary" href="#qa">开始提问</a>
+                        <a class="btn" href="#graph">查看专业课程图谱</a>
+                        <a class="btn" href="#method">方法与评测结果</a>
+                    </div>
                 </div>
-                <div class="input-group">
-                    <label for="query">输入您的问题</label>
-                    <textarea id="query" placeholder="例如：专业的核心课程有哪些？"></textarea>
+                <aside class="card scale-card" aria-labelledby="scale-title">
+                    <h3 id="scale-title">语料与索引规模 <span class="muted small">实时读取</span></h3>
+                    <div class="scale-grid" id="scale-grid"></div>
+                    <div class="scale-foot" id="scale-foot">正在读取系统状态……</div>
+                </aside>
+            </div>
+
+            <div class="block">
+                <div class="section-head">
+                    <span class="section-no">§1</span>
+                    <h2 class="section-title">系统能做什么</h2>
+                    <span class="section-sub">每类问题由不同的处理路径回答，点击示例可直接试问</span>
                 </div>
-                <button id="submit" class="btn btn-primary">
-                    提问
-                </button>
-                <div class="status-bar status-waiting" id="status">等待输入</div>
-                <div class="result-container">
-                    <div class="result-header">回答结果</div>
-                    <div class="result empty" id="result">答案将显示在这里...</div>
-                    <section class="citations" id="citations" hidden>
-                        <div class="citations-title">参考来源</div>
-                        <div class="citation-list" id="citation-list"></div>
+                <div class="cap-grid" id="cap-grid"></div>
+            </div>
+
+            <div class="block">
+                <div class="section-head">
+                    <span class="section-no">§2</span>
+                    <h2 class="section-title">系统架构</h2>
+                    <span class="section-sub">离线管线负责把文档变成可检索、可推理的结构；在线服务负责路由、检索、生成与校验</span>
+                </div>
+                <figure class="card arch">
+                    <svg viewBox="0 0 1180 312" role="img" aria-labelledby="arch-title arch-desc">
+                        <title id="arch-title">系统总体架构</title>
+                        <desc id="arch-desc">培养方案与教学大纲依次经过解析切分、概念抽取验证、图谱构建和索引四个离线阶段，写入结构化产物、Neo4j 和 ChromaDB；在线服务先做意图路由，再按问题类型走不同路径，组装证据后生成回答并逐句校验，输出带引用的答案、先修子图或拒答。</desc>
+                        <defs>
+                            <marker id="arch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                                <path d="M0,0 L10,5 L0,10 z" fill="#474c56"/>
+                            </marker>
+                        </defs>
+                        <g font-size="13" fill="#1d2129" text-anchor="middle">
+                            <g font-family="Noto Serif SC, Songti SC, SimSun, serif" font-weight="700" font-size="14" fill="#474c56">
+                                <text x="80" y="24">数据层</text>
+                                <text x="275" y="24">离线管线</text>
+                                <text x="470" y="24">存储层</text>
+                                <text x="790" y="24">在线服务</text>
+                                <text x="1094" y="24">输出</text>
+                            </g>
+                            <!-- 数据层 -->
+                            <rect x="10" y="88" width="140" height="60" rx="4" fill="#fff" stroke="#d9d5c9"/>
+                            <text x="80" y="114" font-weight="600">培养方案</text>
+                            <text x="80" y="134" fill="#7a7f88" font-size="12">XLSX · 学分 学期 先修</text>
+                            <rect x="10" y="190" width="140" height="60" rx="4" fill="#fff" stroke="#d9d5c9"/>
+                            <text x="80" y="216" font-weight="600">教学大纲</text>
+                            <text x="80" y="236" fill="#7a7f88" font-size="12">DOCX · 目标 进度 考核</text>
+                            <!-- 离线管线：按 run_pipeline 的执行顺序自上而下 -->
+                            <rect x="195" y="48" width="160" height="48" rx="4" fill="#e9eef5" stroke="#c5d1e2"/>
+                            <text x="275" y="68" font-weight="600">① 解析与结构感知切分</text>
+                            <text x="275" y="86" fill="#474c56" font-size="11.5">标题层级 · 面包屑 · 文档树</text>
+                            <rect x="195" y="118" width="160" height="48" rx="4" fill="#e9eef5" stroke="#c5d1e2"/>
+                            <text x="275" y="138" font-weight="600">② 概念抽取与依赖验证</text>
+                            <text x="275" y="156" fill="#474c56" font-size="11.5">规范化 · 多轮投票 · 去环</text>
+                            <rect x="195" y="188" width="160" height="48" rx="4" fill="#e9eef5" stroke="#c5d1e2"/>
+                            <text x="275" y="208" font-weight="600">③ 课程知识图谱构建</text>
+                            <text x="275" y="226" fill="#474c56" font-size="11.5">先修边 · 概念边 · fail-closed</text>
+                            <rect x="195" y="258" width="160" height="48" rx="4" fill="#e9eef5" stroke="#c5d1e2"/>
+                            <text x="275" y="278" font-weight="600">④ 向量与词面索引</text>
+                            <text x="275" y="296" fill="#474c56" font-size="11.5">Embedding · BM25 统计</text>
+                            <!-- 存储层 -->
+                            <rect x="400" y="46" width="140" height="52" rx="4" fill="#fff" stroke="#d9d5c9"/>
+                            <text x="470" y="68" font-weight="600">结构化产物</text>
+                            <text x="470" y="87" fill="#7a7f88" font-size="12">课程目录 · 文档树</text>
+                            <rect x="400" y="150" width="140" height="52" rx="4" fill="#fff" stroke="#d9d5c9"/>
+                            <text x="470" y="172" font-weight="600">Neo4j</text>
+                            <text x="470" y="191" fill="#7a7f88" font-size="12">课程—概念图谱</text>
+                            <rect x="400" y="246" width="140" height="52" rx="4" fill="#fff" stroke="#d9d5c9"/>
+                            <text x="470" y="268" font-weight="600">ChromaDB</text>
+                            <text x="470" y="287" fill="#7a7f88" font-size="12">课程文本块向量</text>
+                            <!-- 在线服务 -->
+                            <rect x="590" y="40" width="400" height="262" rx="6" fill="#fbfaf7" stroke="#d9d5c9" stroke-dasharray="5 4"/>
+                            <rect x="603" y="112" width="104" height="56" rx="4" fill="#fff" stroke="#1f3a5f"/>
+                            <text x="655" y="136" font-weight="600">意图路由</text>
+                            <text x="655" y="154" fill="#7a7f88" font-size="11.5">多标签 + 置信度</text>
+                            <g font-size="12">
+                                <rect x="728" y="56" width="130" height="28" rx="3" fill="#fff" stroke="#d9d5c9"/>
+                                <text x="793" y="75">事实 · 目录（结构化）</text>
+                                <rect x="728" y="92" width="130" height="28" rx="3" fill="#fff" stroke="#d9d5c9"/>
+                                <text x="793" y="111">章节（文档树）</text>
+                                <rect x="728" y="128" width="130" height="28" rx="3" fill="#fff" stroke="#d9d5c9"/>
+                                <text x="793" y="147">内容（混合检索）</text>
+                                <rect x="728" y="164" width="130" height="28" rx="3" fill="#fff" stroke="#d9d5c9"/>
+                                <text x="793" y="183">先修（图谱推理）</text>
+                            </g>
+                            <rect x="728" y="228" width="130" height="50" rx="4" fill="#fff" stroke="#d9d5c9"/>
+                            <text x="793" y="249" font-weight="600">证据组装</text>
+                            <text x="793" y="267" fill="#7a7f88" font-size="11.5">原文顺序 · 父块扩展</text>
+                            <rect x="874" y="228" width="104" height="50" rx="4" fill="#fff" stroke="#1f3a5f"/>
+                            <text x="926" y="249" font-weight="600">生成 + 校验</text>
+                            <text x="926" y="267" fill="#7a7f88" font-size="11.5">逐句 NLI 判定</text>
+                            <!-- 输出 -->
+                            <rect x="1018" y="70" width="152" height="46" rx="4" fill="#e6f0e7" stroke="#b9d3bd"/>
+                            <text x="1094" y="98" font-weight="600">答案 + 可追溯引用</text>
+                            <rect x="1018" y="145" width="152" height="46" rx="4" fill="#fff" stroke="#d9d5c9"/>
+                            <text x="1094" y="173" font-weight="600">先修子图 · 学习层级</text>
+                            <rect x="1018" y="220" width="152" height="46" rx="4" fill="#f8e7e7" stroke="#e2c0c2"/>
+                            <text x="1094" y="248" font-weight="600">证据不足 → 拒答</text>
+                            <g stroke="#474c56" stroke-width="1.3" fill="none" marker-end="url(#arch-arrow)">
+                                <path d="M150 118 L193 74"/>
+                                <path d="M150 220 L193 78"/>
+                                <path d="M275 96 L275 116"/>
+                                <path d="M275 166 L275 186"/>
+                                <path d="M275 236 L275 256"/>
+                                <path d="M355 72 L398 72"/>
+                                <path d="M355 142 L398 170"/>
+                                <path d="M355 212 L398 182"/>
+                                <path d="M355 282 L398 272"/>
+                                <path d="M540 72 L601 130"/>
+                                <path d="M540 176 L601 140"/>
+                                <path d="M540 272 L601 150"/>
+                                <path d="M707 140 L726 124"/>
+                                <path d="M793 192 L793 226"/>
+                                <path d="M858 253 L872 253"/>
+                                <path d="M978 242 L1016 100"/>
+                                <path d="M858 178 L1016 168"/>
+                                <path d="M978 262 L1016 243"/>
+                            </g>
+                        </g>
+                    </svg>
+                    <figcaption>图 1　系统总体架构（箭头为数据流向；离线阶段按 ①→④ 顺序执行）</figcaption>
+                </figure>
+            </div>
+
+            <div class="block">
+                <div class="section-head">
+                    <span class="section-no">§3</span>
+                    <h2 class="section-title">设计原则</h2>
+                </div>
+                <div class="principles">
+                    <div class="principle">
+                        <div class="principle-no">原则一</div>
+                        <h4>答错比答不出更严重</h4>
+                        <p>学生会照着学分、学期去选课。系统设置三道拒答闸门：词面相关性门槛、逐句蕴含校验、全部事实句通过才放行。证据不足时明确说明“未找到可靠资料”。</p>
+                    </div>
+                    <div class="principle">
+                        <div class="principle-no">原则二</div>
+                        <h4>每句话都能追溯来源</h4>
+                        <p>生成、校验与引用共用同一组证据；引用只展示课程、章节和文件名。学分、学期、先修等结构化事实直接取自培养方案，不经大模型改写。</p>
+                    </div>
+                    <div class="principle">
+                        <div class="principle-no">原则三</div>
+                        <h4>给出决策依据，而不只是答案</h4>
+                        <p>先修关系被组织成有向图，系统据此做环路检查与拓扑分层，给出“先学什么”的建议学习层级，并与培养方案中的官方开课学期分开展示。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== 智能问答 ===================== -->
+        <section class="view" id="view-qa" aria-labelledby="qa-title">
+            <div class="section-head">
+                <span class="section-no">§4</span>
+                <h2 class="section-title" id="qa-title">智能问答</h2>
+                <span class="section-sub">先选择你的身份，再从示例或自行输入问题；课程事实不会因身份不同而改变</span>
+            </div>
+            <div class="qa">
+                <aside class="qa-side">
+                    <div class="card">
+                        <h3>选择提问角色</h3>
+                        <div class="persona-cards" id="persona-cards"></div>
+                    </div>
+                    <div class="card persona-detail" id="persona-detail"></div>
+                    <div class="card">
+                        <h3>示例问题 <span class="muted small" id="examples-for"></span></h3>
+                        <div class="examples" id="examples"></div>
+                    </div>
+                </aside>
+
+                <div class="qa-main">
+                    <div class="card">
+                        <div class="ask-row">
+                            <label for="persona">提问角色</label>
+                            <select id="persona" class="persona-select">
+                                <option value="student" selected>学生</option>
+                                <option value="teacher">教师</option>
+                                <option value="visitor">访客</option>
+                            </select>
+                            <span class="muted small">角色只调整证据侧重与回答组织方式</span>
+                        </div>
+                        <label for="query" class="muted small">输入问题</label>
+                        <textarea id="query" maxlength="500" placeholder="例如：档案学专业的核心课程有哪些？　按 Ctrl + Enter 提交"></textarea>
+                        <div class="ask-actions">
+                            <button id="submit" class="btn btn-primary" type="button">提问</button>
+                            <label class="compare-toggle">
+                                <input type="checkbox" id="compare-mode">
+                                三角色对比（同一问题分别以学生、教师、访客身份回答）
+                            </label>
+                            <span class="hint">问题长度 1–500 字</span>
+                        </div>
+                    </div>
+
+                    <div class="status-bar status-waiting" id="status" role="status">等待输入</div>
+
+                    <div class="card" id="answer-card">
+                        <div class="answer-head">
+                            <h3>回答</h3>
+                            <span class="tag tag-accent" id="answer-route" hidden></span>
+                            <span class="tag" id="answer-persona" hidden></span>
+                            <span class="tag" id="answer-verify" hidden></span>
+                        </div>
+                        <div class="result empty" id="result">回答将显示在这里。左侧的示例问题覆盖了系统支持的各类问法，可以先从示例开始。</div>
+                        <section class="citations" id="citations" hidden>
+                            <div class="citations-title">参考来源</div>
+                            <ol class="citation-list" id="citation-list"></ol>
+                        </section>
+                        <section class="feedback" id="feedback" hidden>
+                            <span class="feedback-title">这个回答有用吗？</span>
+                            <button type="button" class="btn feedback-btn" id="feedback-yes">有用</button>
+                            <button type="button" class="btn feedback-btn" id="feedback-no">没用</button>
+                            <span class="feedback-note" id="feedback-note"></span>
+                        </section>
+                    </div>
+
+                    <section class="compare" id="compare" hidden>
+                        <div class="compare-note" id="compare-note">同一问题在三种角色下检索的证据侧重与回答组织方式不同；学分、学期、先修等课程事实保持一致。</div>
+                        <div class="compare-grid" id="compare-grid" style="margin-top:12px"></div>
                     </section>
-                    <section class="feedback" id="feedback" hidden>
-                        <span class="feedback-title">这个回答有用吗？</span>
-                        <button type="button" class="feedback-btn" id="feedback-yes">有用</button>
-                        <button type="button" class="feedback-btn" id="feedback-no">没用</button>
-                        <span class="feedback-note" id="feedback-note"></span>
-                    </section>
-                    <section class="dependency-panel" id="dependency-panel" hidden>
-                        <div class="dependency-title">课程先修关系与选课路径</div>
+
+                    <section class="card dependency-panel" id="dependency-panel" hidden>
+                        <h3>课程先修关系与选课路径</h3>
                         <div class="dependency-controls">
                             <label>
                                 邻域深度
@@ -655,444 +639,1695 @@
                             </label>
                         </div>
                         <div class="dependency-notice" id="dependency-notice" hidden></div>
-                        <div
-                            class="dependency-graph"
-                            id="dependency-graph"
-                            aria-label="课程先修关系图"
-                        ></div>
+                        <div class="dependency-graph" id="dependency-graph" aria-label="课程先修关系图"></div>
                         <section class="learning-plan" id="learning-plan"></section>
                         <details class="dependency-edges">
                             <summary>查看课程边列表</summary>
-                            <ul
-                                class="dependency-edge-list"
-                                id="dependency-edge-list"
-                            ></ul>
+                            <ul class="dependency-edge-list" id="dependency-edge-list"></ul>
                         </details>
                     </section>
-                    <details class="debug-details" id="debug-details" hidden>
-                        <summary>调试详情</summary>
-                        <div class="debug-content" id="debug-content"></div>
+
+                    <details class="card debug-details" id="debug-details" hidden>
+                        <summary>处理过程（路由、证据与校验）</summary>
+                        <dl class="debug-content" id="debug-content"></dl>
                     </details>
                 </div>
             </div>
-        </div>
-        <script src="/static/vendor/mermaid.min.js"></script>
-        <script>
-            const submit = document.getElementById("submit");
-            const queryInput = document.getElementById("query");
-            const personaInput = document.getElementById("persona");
-            const status = document.getElementById("status");
-            const result = document.getElementById("result");
-            const citations = document.getElementById("citations");
-            const citationList = document.getElementById("citation-list");
-            const feedback = document.getElementById("feedback");
-            const feedbackYes = document.getElementById("feedback-yes");
-            const feedbackNo = document.getElementById("feedback-no");
-            const feedbackNote = document.getElementById("feedback-note");
-            const debugDetails = document.getElementById("debug-details");
-            const debugContent = document.getElementById("debug-content");
-            const dependencyPanel = document.getElementById("dependency-panel");
-            const dependencyDepth = document.getElementById("dependency-depth");
-            const dependencyNotice = document.getElementById("dependency-notice");
-            const dependencyGraph = document.getElementById("dependency-graph");
-            const dependencyEdgeList = document.getElementById("dependency-edge-list");
-            const learningPlan = document.getElementById("learning-plan");
-            const programControl = document.getElementById("program-control");
-            const dependencyProgram = document.getElementById("dependency-program");
-            let dependencyTarget = "";
-            let mermaidRenderCount = 0;
+        </section>
 
-            if (window.mermaid) {
-                window.mermaid.initialize({
-                    startOnLoad: false,
-                    securityLevel: "strict",
-                    theme: "neutral",
-                });
+        <!-- ===================== 专业课程图谱 ===================== -->
+        <section class="view" id="view-graph" aria-labelledby="graph-title-head">
+            <div class="section-head">
+                <span class="section-no">§5</span>
+                <h2 class="section-title" id="graph-title-head">专业课程图谱</h2>
+                <span class="section-sub">按开课学期从左到右排列一个培养方案的全部课程；悬停或点击课程，查看它的先修链与后续课程</span>
+            </div>
+            <div class="card graph-shell">
+                <div class="graph-bar">
+                    <label class="bar-field">学院
+                        <select id="graph-college" aria-label="学院"></select>
+                    </label>
+                    <label class="bar-field">专业
+                        <select id="graph-major" aria-label="专业"></select>
+                    </label>
+                    <div class="bar-field">方案
+                        <div class="seg" id="graph-plan-types" role="group" aria-label="方案类型"></div>
+                    </div>
+                    <span class="spacer"></span>
+                    <input type="search" id="graph-search" placeholder="查找课程名或代码" autocomplete="off" aria-label="查找课程">
+                </div>
+                <div class="graph-bar graph-bar-2">
+                    <label class="check"><input type="checkbox" id="show-prereq" checked><span class="legend-line"></span>先修关系</label>
+                    <label class="check"><input type="checkbox" id="show-knowledge"><span class="legend-line knowledge"></span>知识关联（推断）</label>
+                    <label class="check"><input type="checkbox" id="only-linked">只显示有关联的课程</label>
+                    <span class="bar-sep"></span>
+                    <div class="group-filters" id="graph-groups"></div>
+                </div>
+                <div class="graph-head">
+                    <div>
+                        <span class="graph-title" id="graph-title">专业课程图谱</span>
+                        <span class="tag" id="graph-type-tag" hidden></span>
+                    </div>
+                    <div class="graph-stats" id="graph-stats"></div>
+                    <span class="zoom">
+                        <button type="button" id="zoom-out" aria-label="缩小">−</button>
+                        <button type="button" id="zoom-reset" aria-label="原始大小" style="width:auto;padding:0 8px">100%</button>
+                        <button type="button" id="zoom-in" aria-label="放大">+</button>
+                    </span>
+                </div>
+                <div class="graph-body">
+                    <div class="graph-scroll" id="graph-scroll">
+                        <div class="graph-empty" id="graph-empty">正在加载培养方案……</div>
+                        <svg id="program-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="专业课程先修关系网络"></svg>
+                    </div>
+                    <aside class="detail-drawer" id="graph-detail" hidden aria-label="课程详情">
+                        <button type="button" class="drawer-close" id="drawer-close" aria-label="关闭">×</button>
+                        <div id="course-detail"></div>
+                    </aside>
+                </div>
+                <div class="graph-foot">
+                    <span>实线：先修关系，来自培养方案先修栏或大纲先修字段，经课程名精确对齐。</span>
+                    <span>虚线：知识关联，由大模型投票验证过的概念依赖汇总到课程，属推断，未经人工审核；只保留与开课先后一致的方向。</span>
+                    <span>虚线框：本方案之外的先修课程。悬停课程高亮其完整先修链与后续链，点击查看详情，Esc 取消。</span>
+                </div>
+            </div>
+            <details class="card table-view">
+                <summary>以表格查看当前图中的全部关系</summary>
+                <div class="table-scroll">
+                    <table class="academic" id="edge-table">
+                        <thead><tr><th>先修 / 基础课程</th><th>后续课程</th><th>类型</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </details>
+        </section>
+
+        <!-- ===================== 方法与评测 ===================== -->
+        <section class="view" id="view-method" aria-labelledby="method-title">
+            <div class="section-head">
+                <span class="section-no">§6</span>
+                <h2 class="section-title" id="method-title">方法与评测</h2>
+                <span class="section-sub">处理路径、角色画像参数与最近一次量化评测结果</span>
+            </div>
+            <div class="method-grid">
+                <div class="card">
+                    <table class="academic">
+                        <caption>表 1　查询类型与处理路径</caption>
+                        <thead><tr><th>类型</th><th>典型问法</th><th>证据来源</th><th>大模型</th></tr></thead>
+                        <tbody id="route-table"></tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <table class="academic">
+                        <caption>表 2　角色画像参数（来自服务端配置）</caption>
+                        <thead><tr><th>角色</th><th class="num">大纲证据</th><th class="num">方案证据</th><th>优先章节类型</th></tr></thead>
+                        <tbody id="persona-table"></tbody>
+                    </table>
+                    <p class="muted small" style="margin-top:10px">角色只影响检索排序与回答组织方式，不改变课程事实。</p>
+                </div>
+            </div>
+
+            <div class="card block" id="eval-card">
+                <h3>量化评测</h3>
+                <div class="report-meta" id="eval-meta">正在读取最近一次评测报告……</div>
+                <div id="eval-body"></div>
+            </div>
+
+            <div class="card block">
+                <h3>局限与说明</h3>
+                <ol class="notes">
+                    <li>“知识关联”由大模型投票验证过的概念依赖汇总到课程层面得到，属于推断，图谱页以虚线区分，不能当作学校规定的先修要求。</li>
+                    <li>选课路径中的“建议学习层级”来自先修图的拓扑分层，与培养方案中的官方开课学期是两回事，二者分开展示。</li>
+                    <li>同一门课出现在多个培养方案时，学期等字段以所选方案为准；未指明方案时系统会提示选择。</li>
+                    <li>当前系统偏向“宁可不答也不编”：拒答闸门挡住了大部分无答案问题，也会误拒一部分本可回答的问题，评测报告中的误拒率即为这一代价。</li>
+                </ol>
+            </div>
+        </section>
+    </main>
+
+    <footer>zsttSystem · 代码以 MIT 许可发布；培养方案与教学大纲的版权归数据提供方所有，仅用于本地演示与研究。</footer>
+
+    <div class="tooltip" id="tooltip" hidden></div>
+
+    <script src="/static/vendor/mermaid.min.js"></script>
+    <script>
+        // =====================================================================
+        // 通用
+        // =====================================================================
+        const ROUTE_LABELS = {
+            fact: "课程事实",
+            content: "课程内容",
+            structure: "章节结构",
+            dependency: "先修关系",
+            catalog: "培养方案目录",
+            hybrid: "综合检索",
+            complex: "综合检索",
+        };
+        const PERSONA_LABELS = { student: "学生", teacher: "教师", visitor: "访客" };
+        const SECTION_LABELS = {
+            course_objectives: "课程目标",
+            teaching_schedule: "教学进度",
+            teaching_content: "教学内容",
+            prerequisites: "先修课程",
+            assessment: "考核方式",
+            references: "参考书目",
+            textbook: "教材",
+            basic_info: "课程基本信息",
+            overview: "课程概述",
+        };
+        const SOURCE_LABELS = { syllabus: "教学大纲", training_plan: "培养方案" };
+        const NLI_LABELS = {
+            passed: "逐句校验通过",
+            rewritten: "校验后重写通过",
+            pruned: "已剔除未获支持的句子",
+            skipped: "未做校验",
+            unavailable: "校验不可用",
+            refused: "校验未通过，已拒答",
+        };
+
+        function $(id) { return document.getElementById(id); }
+        function el(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined && text !== null) node.textContent = String(text);
+            return node;
+        }
+        function routeLabel(type) {
+            return String(type || "")
+                .split("+")
+                .filter(Boolean)
+                .map((part) => ROUTE_LABELS[part] || part)
+                .join(" ＋ ") || "未知";
+        }
+        async function getJSON(url) {
+            const response = await fetch(url);
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.detail || `请求失败（${response.status}）`);
             }
-
-            function updateStatus(text, type) {
-                status.textContent = text;
-                status.className = `status-bar status-${type}`;
+            return data;
+        }
+        function fmt(value, digits = 2) {
+            if (value === null || value === undefined || value === "") return "—";
+            if (typeof value === "number") {
+                return Number.isInteger(value) ? value.toLocaleString("zh-CN") : value.toFixed(digits);
             }
+            return String(value);
+        }
 
-            function renderCitations(items) {
-                citationList.replaceChildren();
-                citations.hidden = !Array.isArray(items) || items.length === 0;
-                if (citations.hidden) {
-                    return;
-                }
-                items.forEach((item) => {
-                    const card = document.createElement("article");
-                    card.className = "citation-card";
-
-                    const name = document.createElement("div");
-                    name.className = "citation-name";
-                    name.textContent = [
-                        item.course_name,
-                        item.course_code ? `（${item.course_code}）` : "",
-                    ].join("") || "课程资料";
-
-                    const section = document.createElement("div");
-                    section.className = "citation-meta";
-                    section.textContent = item.section
-                        ? `章节：${item.section}`
-                        : "章节：未标注";
-
-                    const source = document.createElement("div");
-                    source.className = "citation-meta";
-                    source.textContent = item.source_file
-                        ? `来源：${item.source_file}`
-                        : "来源：本地知识库";
-
-                    card.append(name, section, source);
-                    citationList.append(card);
-                });
+        // =====================================================================
+        // 视图切换
+        // =====================================================================
+        const VIEWS = ["overview", "qa", "graph", "method"];
+        const viewLoaded = new Set();
+        function showView(name) {
+            const view = VIEWS.includes(name) ? name : "overview";
+            for (const key of VIEWS) {
+                $(`view-${key}`).classList.toggle("active", key === view);
             }
-
-            function renderDebug(data) {
-                debugDetails.hidden = false;
-                debugDetails.open = false;
-                debugContent.textContent = [
-                    `查询 ID：${data.query_id || "无"}`,
-                    `查询类型：${data.query_type || "未知"}`,
-                    `状态：${data.status || "ok"}`,
-                ].join("\n");
+            for (const link of document.querySelectorAll(".nav a")) {
+                if (link.dataset.view === view) link.setAttribute("aria-current", "page");
+                else link.removeAttribute("aria-current");
             }
-
-            function mermaidNodeId(courseCode) {
-                const value = String(courseCode || "");
-                if (/^[A-Za-z][A-Za-z0-9_]*$/.test(value)) {
-                    return value;
-                }
-                let hash = 2166136261;
-                for (const character of value) {
-                    hash ^= character.codePointAt(0);
-                    hash = Math.imul(hash, 16777619);
-                }
-                return `C_${(hash >>> 0).toString(16)}`;
+            if (!viewLoaded.has(view)) {
+                viewLoaded.add(view);
+                if (view === "graph") loadPrograms();
+                if (view === "method") loadMethod();
             }
+            window.scrollTo({ top: 0 });
+        }
+        window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
 
-            function escapeMermaidLabel(value) {
-                return String(value || "")
-                    .replaceAll("&", "&amp;")
-                    .replaceAll('"', "&quot;")
-                    .replaceAll("[", "&#91;")
-                    .replaceAll("]", "&#93;")
-                    .replaceAll("<", "&lt;")
-                    .replaceAll(">", "&gt;")
-                    .replaceAll("\n", " ");
+        // =====================================================================
+        // 系统概览
+        // =====================================================================
+        const CAPABILITIES = [
+            {
+                route: "fact",
+                title: "课程事实查询",
+                desc: "学分、学时、开课学期、课程负责人、考核方式等。一句话可同时问多个字段。",
+                src: "培养方案结构化字段 · 大纲课程基本信息",
+                example: "数据可视化多少学分？第几学期开课？",
+                persona: "student",
+            },
+            {
+                route: "structure",
+                title: "章节与教学安排",
+                desc: "某一章讲什么、一共有几章、教学进度如何安排，按原文章节顺序完整列出。",
+                src: "教学大纲文档树（确定性回答）",
+                example: "《数字档案馆》的教学进度是怎样安排的？",
+                persona: "teacher",
+            },
+            {
+                route: "content",
+                title: "课程内容理解",
+                desc: "课程主要学什么、课程目标是什么，由大模型依据检索证据归纳并逐句校验。",
+                src: "大纲文本块 · 向量 + BM25 混合检索",
+                example: "《档案管理学》的课程目标是什么？",
+                persona: "teacher",
+            },
+            {
+                route: "dependency",
+                title: "先修关系与选课路径",
+                desc: "学某门课前要先学什么；返回先修子图、环路检查与建议学习层级。",
+                src: "先修关系图 · 课程—概念图谱",
+                example: "学《电子文件管理》之前需要先修哪些课程？",
+                persona: "student",
+            },
+            {
+                route: "catalog",
+                title: "培养方案目录",
+                desc: "某专业的核心课、必修课、课程体系，可区分主修、辅修与辅修微专业。",
+                src: "各专业培养方案",
+                example: "档案学专业的核心课程有哪些？",
+                persona: "visitor",
+            },
+        ];
+
+        function renderCapabilities() {
+            const grid = $("cap-grid");
+            grid.replaceChildren();
+            for (const cap of CAPABILITIES) {
+                const card = el("article", "cap");
+                const head = el("div", "cap-head");
+                head.append(el("span", "cap-title", cap.title), el("span", "tag", cap.route));
+                const tryButton = el("button", "cap-try", `试问：${cap.example}`);
+                tryButton.type = "button";
+                tryButton.addEventListener("click", () => askExample(cap.example, cap.persona));
+                card.append(head, el("p", "cap-desc", cap.desc), el("div", "cap-src", `证据：${cap.src}`), tryButton);
+                grid.append(card);
             }
+        }
 
-            function buildMermaidDefinition(data) {
-                const lines = ["graph LR"];
-                for (const node of data.nodes || []) {
-                    const id = mermaidNodeId(node.course_code || node.id);
-                    const code = node.course_code || node.id || "";
-                    const label = escapeMermaidLabel(
-                        `${node.label || code}（${code}）`,
+        function setDot(id, state) {
+            $(id).dataset.state = state;
+        }
+
+        async function loadOverview() {
+            const grid = $("scale-grid");
+            const foot = $("scale-foot");
+            const items = [
+                ["培养方案", "program_count", "份"],
+                ["覆盖专业", "major_count", "个"],
+                ["课程", "course_count", "门"],
+                ["教学大纲", "syllabus_count", "份"],
+                ["检索文本块", "chunk_count", "块"],
+                ["课程先修关系", "prerequisite_edge_count", "条"],
+                ["规范化概念", "concept_count", "个"],
+                ["验证通过的概念依赖", "verified_relation_count", "条"],
+            ];
+            try {
+                const [overview, health] = await Promise.all([
+                    getJSON("/overview"),
+                    getJSON("/health").catch(() => ({})),
+                ]);
+                grid.replaceChildren();
+                for (const [label, key, unit] of items) {
+                    const cell = el("div", "scale-item");
+                    const value = overview[key];
+                    cell.append(
+                        el("div", "scale-value", value === null || value === undefined ? "—" : fmt(value)),
+                        el("div", "scale-label", value === null || value === undefined ? `${label}（未生成）` : `${label}（${unit}）`),
                     );
-                    lines.push(`    ${id}["${label}"]`);
+                    grid.append(cell);
                 }
-                for (const edge of data.edges || []) {
-                    const source = mermaidNodeId(edge.source);
-                    const target = mermaidNodeId(edge.target);
-                    lines.push(`    ${source} -->|先修| ${target}`);
-                }
-                return lines.join("\n");
+                setDot("dot-chroma", health.chroma === "connected" ? "ok" : "off");
+                setDot("dot-neo4j", overview.neo4j === "connected" ? "ok" : "off");
+                setDot("dot-llm", overview.llm === "configured" ? "ok" : "off");
+                const parts = [
+                    `向量库：${health.chroma === "connected" ? "已连接" : "不可用"}`,
+                    `图数据库：${overview.neo4j === "connected" ? "已连接" : "不可用（先修推理降级）"}`,
+                    `大模型：${overview.llm === "configured" ? "已配置" : "未配置（使用模板化摘要）"}`,
+                ];
+                foot.textContent = parts.join("　");
+            } catch (error) {
+                foot.textContent = `系统状态读取失败：${error.message}`;
+                setDot("dot-chroma", "off");
+                setDot("dot-neo4j", "off");
+                setDot("dot-llm", "off");
             }
+        }
 
-            function renderEdgeList(data) {
-                dependencyEdgeList.replaceChildren();
-                const labels = new Map(
-                    (data.nodes || []).map((node) => [
-                        node.course_code || node.id,
-                        node.label || node.course_code || node.id,
-                    ]),
+        // =====================================================================
+        // 智能问答：角色
+        // =====================================================================
+        const PERSONA_META = {
+            student: {
+                who: "在读本科生：关心这门课学什么、先学什么、什么时候上。",
+                style: "解释专业术语，突出先修基础、学习难点和建议顺序。",
+                examples: [
+                    ["章节", "《信息组织基础》一共有几章？分别讲什么？"],
+                    ["先修", "学《电子文件管理》之前需要先修哪些课程？"],
+                    ["事实", "数据可视化多少学分？第几学期开课？"],
+                    ["目录", "档案学专业的核心课程有哪些？"],
+                    ["内容", "管理运筹学主要学什么？"],
+                ],
+            },
+            teacher: {
+                who: "任课教师 / 教学管理者：关心课程目标、考核设计与培养方案的对应。",
+                style: "保留教学设计术语，说明课程目标、教学安排与考核方式，并标明证据来源。",
+                examples: [
+                    ["内容", "《档案管理学》的课程目标是什么？"],
+                    ["事实", "《信息分析与决策》的考核方式是什么？"],
+                    ["章节", "《数字档案馆》的教学进度是怎样安排的？"],
+                    ["事实", "《专门档案管理》的课程负责人是谁？"],
+                    ["先修", "为什么要先学档案学概论再学档案管理学？"],
+                ],
+            },
+            visitor: {
+                who: "访客 / 报考咨询者：想快速了解一个专业或一门课是什么。",
+                style: "先说明专业或课程定位，少用术语，不展开内部教学细节。",
+                examples: [
+                    ["目录", "图书馆学专业的培养方案里有哪些课程？"],
+                    ["内容", "《文献保护与修复》是一门什么样的课？"],
+                    ["目录", "信息管理与信息系统专业要修哪些专业必修课？"],
+                    ["内容", "档案学概论主要讲什么？"],
+                ],
+            },
+        };
+        // 服务端 /personas 的实时配置；拿不到时卡片只显示文字说明。
+        let personaProfiles = null;
+
+        const submit = $("submit");
+        const queryInput = $("query");
+        const personaInput = $("persona");
+        const status = $("status");
+        const result = $("result");
+        const citations = $("citations");
+        const citationList = $("citation-list");
+        const feedback = $("feedback");
+        const feedbackYes = $("feedback-yes");
+        const feedbackNo = $("feedback-no");
+        const feedbackNote = $("feedback-note");
+        const debugDetails = $("debug-details");
+        const debugContent = $("debug-content");
+        const dependencyPanel = $("dependency-panel");
+        const dependencyDepth = $("dependency-depth");
+        const dependencyNotice = $("dependency-notice");
+        const dependencyGraph = $("dependency-graph");
+        const dependencyEdgeList = $("dependency-edge-list");
+        const learningPlan = $("learning-plan");
+        const programControl = $("program-control");
+        const dependencyProgram = $("dependency-program");
+        const compareMode = $("compare-mode");
+        const compareSection = $("compare");
+        const compareGrid = $("compare-grid");
+        let dependencyTarget = "";
+        let mermaidRenderCount = 0;
+
+        if (window.mermaid) {
+            window.mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: "strict",
+                theme: "neutral",
+            });
+        }
+
+        function renderPersonaCards() {
+            const container = $("persona-cards");
+            container.replaceChildren();
+            for (const key of ["student", "teacher", "visitor"]) {
+                const card = el("button", "persona-card");
+                card.type = "button";
+                card.setAttribute("aria-pressed", String(personaInput.value === key));
+                card.append(
+                    el("span", "persona-name", PERSONA_LABELS[key]),
+                    el("span", "tag", key),
+                    el("span", "persona-who", PERSONA_META[key].who),
                 );
-                for (const edge of data.edges || []) {
-                    const item = document.createElement("li");
-                    item.textContent = [
-                        `${labels.get(edge.source) || edge.source}（${edge.source}）`,
-                        " → ",
-                        `${labels.get(edge.target) || edge.target}（${edge.target}）`,
-                        edge.source_file ? `；来源：${edge.source_file}` : "",
-                    ].join("");
-                    dependencyEdgeList.append(item);
-                }
-                if (!dependencyEdgeList.children.length) {
-                    const item = document.createElement("li");
-                    item.textContent = "未找到明确的硬先修边。";
-                    dependencyEdgeList.append(item);
-                }
+                card.addEventListener("click", () => selectPersona(key));
+                container.append(card);
             }
+        }
 
-            function renderLearningPlan(plan) {
-                learningPlan.replaceChildren();
-                if (!plan) {
-                    return;
-                }
-                const title = document.createElement("div");
-                title.className = "plan-title";
-                title.textContent = "建议学习层级（不等同于学校真实学期）";
-                learningPlan.append(title);
+        function sectionList(values) {
+            return (values || []).map((value) => SECTION_LABELS[value] || value).join("、") || "—";
+        }
 
-                for (const warningText of plan.warnings || []) {
-                    const warning = document.createElement("div");
-                    warning.className = "plan-warning";
-                    warning.textContent = warningText;
-                    learningPlan.append(warning);
-                }
-                if (plan.status === "cycle_detected" && plan.cycle?.length) {
-                    const cycle = document.createElement("div");
-                    cycle.className = "plan-warning";
-                    cycle.textContent = `检测到环：${plan.cycle.join(" → ")}`;
-                    learningPlan.append(cycle);
-                    return;
-                }
-                if (!Array.isArray(plan.layers) || !plan.layers.length) {
-                    return;
-                }
-                const layers = document.createElement("div");
-                layers.className = "plan-layers";
-                for (const layer of plan.layers) {
-                    const card = document.createElement("div");
-                    card.className = "plan-layer";
-                    const courses = (layer.courses || []).map((course) => {
-                        const semester = course.official_semester == null
-                            ? "开课学期未标注"
-                            : `官方第 ${course.official_semester} 学期`;
-                        return (
-                            `${course.label}（${course.course_code}，`
-                            + `${semester}）`
-                        );
-                    });
-                    card.textContent = (
-                        `学习层级 ${layer.stage}：${courses.join("；")}`
-                    );
-                    layers.append(card);
-                }
-                learningPlan.append(layers);
+        function renderPersonaDetail() {
+            const key = personaInput.value;
+            const meta = PERSONA_META[key];
+            const box = $("persona-detail");
+            box.replaceChildren(el("h3", "", `${PERSONA_LABELS[key]}角色如何影响回答`));
+            const list = el("dl");
+            const rows = [["回答风格", meta.style]];
+            const profile = personaProfiles?.profiles?.[key];
+            if (profile) {
+                rows.push(["优先章节", sectionList(profile.preferred_sections)]);
+                rows.push(["证据数量", `教学大纲 ${profile.syllabus_top_k} 条 · 培养方案 ${profile.plan_top_k} 条`]);
+                const boosts = Object.entries(profile.source_boosts || {})
+                    .map(([source, value]) => `${SOURCE_LABELS[source] || source} +${value}`)
+                    .join("，");
+                if (boosts) rows.push(["来源加权", boosts]);
             }
-
-            function renderProgramOptions(plan) {
-                const programs = plan?.available_programs || [];
-                programControl.hidden = programs.length <= 1;
-                dependencyProgram.replaceChildren();
-                if (programControl.hidden) {
-                    return;
-                }
-                const prompt = document.createElement("option");
-                prompt.value = "";
-                prompt.textContent = "请选择培养方案";
-                dependencyProgram.append(prompt);
-                for (const program of programs) {
-                    const option = document.createElement("option");
-                    option.value = program;
-                    option.textContent = program;
-                    option.selected = program === plan.program_name;
-                    dependencyProgram.append(option);
-                }
+            for (const [term, desc] of rows) {
+                list.append(el("dt", "", term), el("dd", "", desc));
             }
+            box.append(list);
+        }
 
-            async function renderDependencyInfo(data) {
-                const valid = (
-                    data
-                    && data.target_course
-                    && Array.isArray(data.nodes)
-                    && Array.isArray(data.edges)
-                );
-                dependencyPanel.hidden = !valid;
-                if (!valid) {
-                    dependencyTarget = "";
-                    return;
-                }
-                dependencyTarget = data.target_course;
-                dependencyDepth.value = String(data.depth || 2);
-                dependencyNotice.hidden = true;
-                if (data.truncated) {
-                    dependencyNotice.textContent = (
-                        `子图共有 ${data.total_nodes} 个节点，`
-                        + `当前仅显示 ${data.nodes.length} 个。`
-                    );
-                    dependencyNotice.hidden = false;
-                }
-                renderEdgeList(data);
-                renderProgramOptions(data.plan);
-                renderLearningPlan(data.plan);
-                dependencyGraph.replaceChildren();
-                if (data.nodes.length > 30) {
-                    dependencyGraph.textContent = (
-                        "节点超过 30 个，已停止图形渲染。"
-                    );
-                    return;
-                }
-                if (!window.mermaid) {
-                    dependencyGraph.textContent = (
-                        "图形组件未加载，请使用下方课程边列表。"
-                    );
-                    return;
-                }
-                try {
-                    const definition = buildMermaidDefinition(data);
-                    const renderId = (
-                        `course-dependency-${++mermaidRenderCount}`
-                    );
-                    const { svg } = await window.mermaid.render(
-                        renderId,
-                        definition,
-                    );
-                    dependencyGraph.innerHTML = svg;
-                } catch (_error) {
-                    dependencyGraph.textContent = (
-                        "关系图渲染失败，请使用下方课程边列表。"
-                    );
-                }
-            }
-
-            async function refreshDependencyInfo() {
-                if (!dependencyTarget) {
-                    return;
-                }
-                const parameters = new URLSearchParams({
-                    depth: dependencyDepth.value,
-                    max_nodes: "30",
+        function renderExamples() {
+            const key = personaInput.value;
+            $("examples-for").textContent = `· ${PERSONA_LABELS[key]}`;
+            const container = $("examples");
+            container.replaceChildren();
+            for (const [type, text] of PERSONA_META[key].examples) {
+                const button = el("button", "example");
+                button.type = "button";
+                button.append(el("span", "tag", type), el("span", "", text));
+                button.addEventListener("click", () => {
+                    queryInput.value = text;
+                    queryInput.focus();
                 });
-                if (dependencyProgram.value) {
-                    parameters.set("program_name", dependencyProgram.value);
-                }
-                try {
-                    const response = await fetch(
-                        `/courses/${encodeURIComponent(dependencyTarget)}`
-                        + `/dependencies?${parameters}`,
-                    );
-                    const data = await response.json();
-                    if (!response.ok) {
-                        throw new Error(data.detail || "依赖子图请求失败");
-                    }
-                    await renderDependencyInfo(data);
-                } catch (error) {
-                    dependencyNotice.textContent = String(error);
-                    dependencyNotice.hidden = false;
-                }
+                container.append(button);
             }
+        }
 
-            dependencyDepth.addEventListener("change", refreshDependencyInfo);
-            dependencyProgram.addEventListener(
-                "change",
-                refreshDependencyInfo,
+        function selectPersona(key) {
+            personaInput.value = key;
+            renderPersonaCards();
+            renderPersonaDetail();
+            renderExamples();
+        }
+        personaInput.addEventListener("change", () => selectPersona(personaInput.value));
+
+        function askExample(text, persona) {
+            if (persona) selectPersona(persona);
+            queryInput.value = text;
+            location.hash = "#qa";
+            queryInput.focus();
+        }
+
+        async function loadPersonas() {
+            try {
+                personaProfiles = await getJSON("/personas");
+            } catch (_error) {
+                personaProfiles = null;
+            }
+            renderPersonaDetail();
+        }
+
+        // =====================================================================
+        // 智能问答：结果渲染
+        // =====================================================================
+        function updateStatus(text, type) {
+            status.textContent = text;
+            status.className = `status-bar status-${type}`;
+        }
+
+        function citationText(item) {
+            const name = [item.course_name, item.course_code ? `（${item.course_code}）` : ""].join("") || "课程资料";
+            const parts = [item.section ? `章节：${item.section}` : "章节：未标注", item.source_file ? `文件：${item.source_file}` : "来源：本地知识库"];
+            return [name, parts.join("；")];
+        }
+
+        function renderCitations(items) {
+            citationList.replaceChildren();
+            citations.hidden = !Array.isArray(items) || items.length === 0;
+            if (citations.hidden) {
+                return;
+            }
+            items.forEach((item, index) => {
+                const card = el("li", "citation-card");
+                const [name, rest] = citationText(item);
+                const body = el("span");
+                body.append(el("span", "citation-name", name), document.createTextNode(`　${rest}`));
+                card.append(el("span", "citation-no", `[${index + 1}]`), body);
+                citationList.append(card);
+            });
+        }
+
+        function verifyLabel(metadata) {
+            const nli = metadata?.nli_status;
+            if (nli && NLI_LABELS[nli]) return NLI_LABELS[nli];
+            if (metadata && metadata.llm_used === false) return "结构化查询，未经大模型";
+            return "";
+        }
+
+        function renderAnswerTags(data, persona) {
+            const route = $("answer-route");
+            route.textContent = `路径：${routeLabel(data.query_type)}`;
+            route.hidden = false;
+            const personaTag = $("answer-persona");
+            personaTag.textContent = `角色：${PERSONA_LABELS[persona] || persona}`;
+            personaTag.hidden = false;
+            const verify = $("answer-verify");
+            const label = verifyLabel(data.metadata);
+            verify.textContent = label;
+            verify.hidden = !label;
+        }
+
+        function renderDebug(data) {
+            debugDetails.hidden = false;
+            debugDetails.open = false;
+            debugContent.replaceChildren();
+            const metadata = data.metadata || {};
+            const rows = [
+                ["查询 ID", data.query_id || "无"],
+                ["处理路径", `${routeLabel(data.query_type)}（${data.query_type || "未知"}）`],
+                ["意图标签", (metadata.intent_labels || []).map(routeLabel).join("、") || "—"],
+                ["意图置信度", metadata.intent_confidence === undefined ? "—" : fmt(metadata.intent_confidence)],
+                ["检索证据数", metadata.vector_hits === undefined ? "—" : String(metadata.vector_hits)],
+                ["图谱路径数", metadata.graph_nodes === undefined ? "—" : String(metadata.graph_nodes)],
+                ["调用大模型", metadata.llm_used === undefined ? "—" : (metadata.llm_used ? "是" : "否")],
+                ["逐句校验", NLI_LABELS[metadata.nli_status] || metadata.nli_status || "—"],
+                ["响应状态", data.status || "ok"],
+            ];
+            for (const [term, value] of rows) {
+                debugContent.append(el("dt", "", term), el("dd", "", value));
+            }
+        }
+
+        function mermaidNodeId(courseCode) {
+            const value = String(courseCode || "");
+            if (/^[A-Za-z][A-Za-z0-9_]*$/.test(value)) {
+                return value;
+            }
+            let hash = 2166136261;
+            for (const character of value) {
+                hash ^= character.codePointAt(0);
+                hash = Math.imul(hash, 16777619);
+            }
+            return `C_${(hash >>> 0).toString(16)}`;
+        }
+
+        function escapeMermaidLabel(value) {
+            return String(value || "")
+                .replaceAll("&", "&amp;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("[", "&#91;")
+                .replaceAll("]", "&#93;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll("\n", " ");
+        }
+
+        function buildMermaidDefinition(data) {
+            const lines = ["graph LR"];
+            for (const node of data.nodes || []) {
+                const id = mermaidNodeId(node.course_code || node.id);
+                const code = node.course_code || node.id || "";
+                const label = escapeMermaidLabel(`${node.label || code}（${code}）`);
+                lines.push(`    ${id}["${label}"]`);
+            }
+            for (const edge of data.edges || []) {
+                const source = mermaidNodeId(edge.source);
+                const target = mermaidNodeId(edge.target);
+                lines.push(`    ${source} -->|先修| ${target}`);
+            }
+            return lines.join("\n");
+        }
+
+        function renderEdgeList(data) {
+            dependencyEdgeList.replaceChildren();
+            const labels = new Map(
+                (data.nodes || []).map((node) => [
+                    node.course_code || node.id,
+                    node.label || node.course_code || node.id,
+                ]),
             );
-
-            // 反馈闭环的入口：这里记下的 query_id 会被
-            // maintenance/active_learning_sampler.py 挑成待人工复核的样本。
-            let feedbackQueryId = null;
-
-            function hideFeedback() {
-                feedbackQueryId = null;
-                feedback.hidden = true;
-                feedbackNote.textContent = "";
+            for (const edge of data.edges || []) {
+                const item = document.createElement("li");
+                item.textContent = [
+                    `${labels.get(edge.source) || edge.source}（${edge.source}）`,
+                    " → ",
+                    `${labels.get(edge.target) || edge.target}（${edge.target}）`,
+                    edge.source_file ? `；来源：${edge.source_file}` : "",
+                ].join("");
+                dependencyEdgeList.append(item);
             }
+            if (!dependencyEdgeList.children.length) {
+                const item = document.createElement("li");
+                item.textContent = "未找到明确的硬先修边。";
+                dependencyEdgeList.append(item);
+            }
+        }
 
-            function showFeedback(queryId) {
-                if (!queryId) {
-                    hideFeedback();
-                    return;
+        function renderLearningPlan(plan) {
+            learningPlan.replaceChildren();
+            if (!plan) {
+                return;
+            }
+            learningPlan.append(el("div", "plan-title", "建议学习层级（不等同于学校真实学期）"));
+            for (const warningText of plan.warnings || []) {
+                learningPlan.append(el("div", "plan-warning", warningText));
+            }
+            if (plan.status === "cycle_detected" && plan.cycle?.length) {
+                learningPlan.append(el("div", "plan-warning", `检测到环：${plan.cycle.join(" → ")}`));
+                return;
+            }
+            if (!Array.isArray(plan.layers) || !plan.layers.length) {
+                return;
+            }
+            const layers = el("div", "plan-layers");
+            for (const layer of plan.layers) {
+                const courses = (layer.courses || []).map((course) => {
+                    const semester = course.official_semester == null
+                        ? "开课学期未标注"
+                        : `官方第 ${course.official_semester} 学期`;
+                    return `${course.label}（${course.course_code}，${semester}）`;
+                });
+                layers.append(el("div", "plan-layer", `学习层级 ${layer.stage}：${courses.join("；")}`));
+            }
+            learningPlan.append(layers);
+        }
+
+        function renderProgramOptions(plan) {
+            const programs = plan?.available_programs || [];
+            programControl.hidden = programs.length <= 1;
+            dependencyProgram.replaceChildren();
+            if (programControl.hidden) {
+                return;
+            }
+            const prompt = document.createElement("option");
+            prompt.value = "";
+            prompt.textContent = "请选择培养方案";
+            dependencyProgram.append(prompt);
+            for (const program of programs) {
+                const option = document.createElement("option");
+                option.value = program;
+                option.textContent = program;
+                option.selected = program === plan.program_name;
+                dependencyProgram.append(option);
+            }
+        }
+
+        async function renderDependencyInfo(data) {
+            const valid = (
+                data
+                && data.target_course
+                && Array.isArray(data.nodes)
+                && Array.isArray(data.edges)
+            );
+            dependencyPanel.hidden = !valid;
+            if (!valid) {
+                dependencyTarget = "";
+                return;
+            }
+            dependencyTarget = data.target_course;
+            dependencyDepth.value = String(data.depth || 2);
+            dependencyNotice.hidden = true;
+            if (data.truncated) {
+                dependencyNotice.textContent = `子图共有 ${data.total_nodes} 个节点，当前仅显示 ${data.nodes.length} 个。`;
+                dependencyNotice.hidden = false;
+            }
+            renderEdgeList(data);
+            renderProgramOptions(data.plan);
+            renderLearningPlan(data.plan);
+            dependencyGraph.replaceChildren();
+            if (data.nodes.length > 30) {
+                dependencyGraph.textContent = "节点超过 30 个，已停止图形渲染。";
+                return;
+            }
+            if (!window.mermaid) {
+                dependencyGraph.textContent = "图形组件未加载，请使用下方课程边列表。";
+                return;
+            }
+            try {
+                const definition = buildMermaidDefinition(data);
+                const renderId = `course-dependency-${++mermaidRenderCount}`;
+                const { svg } = await window.mermaid.render(renderId, definition);
+                dependencyGraph.innerHTML = svg;
+            } catch (_error) {
+                dependencyGraph.textContent = "关系图渲染失败，请使用下方课程边列表。";
+            }
+        }
+
+        async function refreshDependencyInfo() {
+            if (!dependencyTarget) {
+                return;
+            }
+            const parameters = new URLSearchParams({
+                depth: dependencyDepth.value,
+                max_nodes: "30",
+            });
+            if (dependencyProgram.value) {
+                parameters.set("program_name", dependencyProgram.value);
+            }
+            try {
+                const data = await getJSON(
+                    `/courses/${encodeURIComponent(dependencyTarget)}/dependencies?${parameters}`,
+                );
+                await renderDependencyInfo(data);
+            } catch (error) {
+                dependencyNotice.textContent = String(error);
+                dependencyNotice.hidden = false;
+            }
+        }
+        dependencyDepth.addEventListener("change", refreshDependencyInfo);
+        dependencyProgram.addEventListener("change", refreshDependencyInfo);
+
+        // 反馈闭环的入口：这里记下的 query_id 会被
+        // maintenance/active_learning_sampler.py 挑成待人工复核的样本。
+        let feedbackQueryId = null;
+
+        function hideFeedback() {
+            feedbackQueryId = null;
+            feedback.hidden = true;
+            feedbackNote.textContent = "";
+        }
+
+        function showFeedback(queryId) {
+            if (!queryId) {
+                hideFeedback();
+                return;
+            }
+            feedbackQueryId = queryId;
+            feedbackYes.disabled = false;
+            feedbackNo.disabled = false;
+            feedbackNote.textContent = "";
+            feedback.hidden = false;
+        }
+
+        async function sendFeedback(isHelpful) {
+            if (!feedbackQueryId) {
+                return;
+            }
+            feedbackYes.disabled = true;
+            feedbackNo.disabled = true;
+            feedbackNote.textContent = "正在记录……";
+            try {
+                const response = await fetch("/feedback", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        query_id: feedbackQueryId,
+                        is_helpful: isHelpful,
+                    }),
+                });
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.detail || "提交失败");
                 }
-                feedbackQueryId = queryId;
+                feedbackNote.textContent = isHelpful
+                    ? "已记录，谢谢反馈"
+                    : "已记录，这条问答会进入人工复核";
+            } catch (error) {
+                // 失败时放开按钮：反馈丢了没人知道，比按钮卡住更糟。
                 feedbackYes.disabled = false;
                 feedbackNo.disabled = false;
-                feedbackNote.textContent = "";
-                feedback.hidden = false;
+                feedbackNote.textContent = "反馈提交失败：" + String(error);
             }
+        }
+        feedbackYes.addEventListener("click", () => sendFeedback(true));
+        feedbackNo.addEventListener("click", () => sendFeedback(false));
 
-            async function sendFeedback(isHelpful) {
-                if (!feedbackQueryId) {
-                    return;
-                }
-                feedbackYes.disabled = true;
-                feedbackNo.disabled = true;
-                feedbackNote.textContent = "正在记录...";
-                try {
-                    const response = await fetch("/feedback", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            query_id: feedbackQueryId,
-                            is_helpful: isHelpful,
-                        })
-                    });
-                    if (!response.ok) {
-                        const data = await response.json();
-                        throw new Error(data.detail || "提交失败");
-                    }
-                    feedbackNote.textContent = isHelpful
-                        ? "已记录，谢谢反馈"
-                        : "已记录，这条问答会进入人工复核";
-                } catch (error) {
-                    // 失败时放开按钮：反馈丢了没人知道，比按钮卡住更糟。
-                    feedbackYes.disabled = false;
-                    feedbackNo.disabled = false;
-                    feedbackNote.textContent = "反馈提交失败：" + String(error);
-                }
+        function resetAnswerArea() {
+            hideFeedback();
+            citations.hidden = true;
+            debugDetails.hidden = true;
+            dependencyPanel.hidden = true;
+            compareSection.hidden = true;
+            for (const id of ["answer-route", "answer-persona", "answer-verify"]) {
+                $(id).hidden = true;
             }
+        }
 
-            feedbackYes.addEventListener("click", () => sendFeedback(true));
-            feedbackNo.addEventListener("click", () => sendFeedback(false));
+        async function postQuery(query, persona) {
+            const response = await fetch("/query", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ query, persona }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(response.status === 429 ? "请求过于频繁，请稍后再试" : (data.detail || "请求失败"));
+            }
+            return data;
+        }
 
-            submit.addEventListener("click", async () => {
-                const query = queryInput.value.trim();
-                if (!query) {
-                    updateStatus("请输入问题", "failed");
-                    setTimeout(() => updateStatus("等待输入", "waiting"), 2000);
-                    return;
-                }
-
-                submit.disabled = true;
-                submit.classList.add("btn-loading");
-                submit.textContent = "";
-                updateStatus("正在查询...", "querying");
-                result.textContent = "正在思考中，请稍候...";
-                result.classList.remove("empty");
-                hideFeedback();
-                citations.hidden = true;
-                debugDetails.hidden = true;
-                dependencyPanel.hidden = true;
-
-                try {
-                    const response = await fetch("/query", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            query,
-                            persona: personaInput.value,
-                        })
-                    });
-                    const data = await response.json();
-                    if (!response.ok) {
-                        throw new Error(data.detail || "请求失败");
-                    }
-
-                    result.textContent = data.answer || "当前没有可展示的答案。";
-                    showFeedback(data.query_id);
-                    renderCitations(data.citations);
-                    await renderDependencyInfo(data.dependency_info);
-                    renderDebug(data);
-                    updateStatus(
-                        data.status === "degraded" ? "查询完成（服务降级）" : "查询完成",
-                        "done",
-                    );
-                } catch (error) {
-                    updateStatus("查询失败", "failed");
-                    result.textContent = "错误: " + String(error);
-                    hideFeedback();
-                    citations.hidden = true;
-                    debugDetails.hidden = true;
-                    dependencyPanel.hidden = true;
-                } finally {
-                    submit.disabled = false;
-                    submit.classList.remove("btn-loading");
-                    submit.textContent = "提问";
+        async function runCompare(query) {
+            compareGrid.replaceChildren();
+            compareSection.hidden = false;
+            const columns = {};
+            for (const key of ["student", "teacher", "visitor"]) {
+                const col = el("article", "compare-col");
+                const head = el("h4");
+                head.append(el("span", "", PERSONA_LABELS[key]), el("span", "tag", key));
+                const meta = el("div", "compare-meta", "正在查询……");
+                const answer = el("div", "compare-answer");
+                col.append(head, meta, answer);
+                compareGrid.append(col);
+                columns[key] = { meta, answer };
+            }
+            const results = await Promise.allSettled(
+                ["student", "teacher", "visitor"].map((personaKey) => postQuery(query, personaKey)),
+            );
+            ["student", "teacher", "visitor"].forEach((key, index) => {
+                const outcome = results[index];
+                const { meta, answer } = columns[key];
+                if (outcome.status === "fulfilled") {
+                    const data = outcome.value;
+                    answer.textContent = data.answer || "当前没有可展示的答案。";
+                    const count = Array.isArray(data.citations) ? data.citations.length : 0;
+                    const verify = verifyLabel(data.metadata);
+                    meta.textContent = [`路径：${routeLabel(data.query_type)}`, `引用 ${count} 条`, verify].filter(Boolean).join(" · ");
+                } else {
+                    meta.textContent = "查询失败";
+                    answer.textContent = String(outcome.reason?.message || outcome.reason);
                 }
             });
-        </script>
-    </body>
-    </html>
+            return results.every((outcome) => outcome.status === "fulfilled");
+        }
+
+        async function handleSubmit() {
+            const query = queryInput.value.trim();
+            if (!query) {
+                updateStatus("请输入问题", "failed");
+                setTimeout(() => updateStatus("等待输入", "waiting"), 2000);
+                return;
+            }
+            submit.disabled = true;
+            submit.textContent = "查询中……";
+            resetAnswerArea();
+            result.classList.remove("empty");
+            if (compareMode.checked) {
+                updateStatus("正在以三种角色分别查询……", "querying");
+                result.textContent = "三角色对比结果见下方。";
+                try {
+                    const ok = await runCompare(query);
+                    updateStatus(ok ? "对比完成" : "对比完成（部分角色查询失败）", ok ? "done" : "failed");
+                } finally {
+                    submit.disabled = false;
+                    submit.textContent = "提问";
+                }
+                return;
+            }
+            updateStatus("正在查询……", "querying");
+            result.textContent = "正在检索证据并生成回答，请稍候……";
+            const persona = personaInput.value;
+            try {
+                const response = await fetch("/query", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        query,
+                        persona: personaInput.value,
+                    }),
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(response.status === 429 ? "请求过于频繁，请稍后再试" : (data.detail || "请求失败"));
+                }
+                result.textContent = data.answer || "当前没有可展示的答案。";
+                renderAnswerTags(data, persona);
+                showFeedback(data.query_id);
+                renderCitations(data.citations);
+                await renderDependencyInfo(data.dependency_info);
+                renderDebug(data);
+                const degraded = data.status && data.status !== "ok";
+                updateStatus(degraded ? `查询完成（${data.status === "degraded" ? "服务降级" : "未找到可靠证据"}）` : "查询完成", "done");
+            } catch (error) {
+                updateStatus("查询失败", "failed");
+                result.textContent = "错误：" + String(error.message || error);
+                resetAnswerArea();
+            } finally {
+                submit.disabled = false;
+                submit.textContent = "提问";
+            }
+        }
+        submit.addEventListener("click", handleSubmit);
+        queryInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                handleSubmit();
+            }
+        });
+
+        // =====================================================================
+        // 专业课程图谱
+        // =====================================================================
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        const GROUP_ORDER = ["public", "foundation", "core", "practice", "elective", "minor", "other"];
+        const GROUP_LABELS = {
+            public: "公共必修课",
+            foundation: "基础课（大类 / 专业基础）",
+            core: "专业核心课",
+            practice: "专业实践课",
+            elective: "专业选修课",
+            minor: "辅修课程",
+            other: "其他",
+        };
+        const GROUP_COLORS = {
+            public: "var(--g-public)",
+            foundation: "var(--g-foundation)",
+            core: "var(--g-core)",
+            practice: "var(--g-practice)",
+            elective: "var(--g-elective)",
+            minor: "var(--g-minor)",
+            other: "var(--g-other)",
+        };
+        const NODE_W = 138;
+        const NODE_H = 34;
+        const COL_W = 172;
+        const ROW_GAP = 8;
+        const GROUP_GAP = 16;
+        const TOP = 52;
+        const PAD_X = 18;
+
+        const graphState = {
+            catalog: null,
+            data: null,
+            hiddenGroups: new Set(),
+            selected: null,
+            hovered: null,
+            zoom: 1,
+            positions: new Map(),
+            width: 0,
+            height: 0,
+        };
+        const svg = $("program-svg");
+        const tooltip = $("tooltip");
+
+        function svgEl(tag, attrs = {}) {
+            const node = document.createElementNS(SVG_NS, tag);
+            for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+            return node;
+        }
+
+        async function loadPrograms() {
+            try {
+                graphState.catalog = await getJSON("/programs");
+            } catch (error) {
+                $("graph-empty").textContent = `培养方案读取失败：${error.message}`;
+                return;
+            }
+            const colleges = graphState.catalog.colleges || [];
+            const collegeSelect = $("graph-college");
+            collegeSelect.replaceChildren();
+            for (const college of colleges) {
+                const option = el("option", "", college.name);
+                option.value = college.name;
+                collegeSelect.append(option);
+            }
+            if (!colleges.length) {
+                $("graph-empty").textContent = "未找到培养方案，请先运行离线管线的 parse 阶段。";
+                return;
+            }
+            fillMajors();
+        }
+
+        function currentCollege() {
+            return (graphState.catalog?.colleges || []).find((c) => c.name === $("graph-college").value);
+        }
+
+        function fillMajors() {
+            const college = currentCollege();
+            const majorSelect = $("graph-major");
+            majorSelect.replaceChildren();
+            for (const major of college?.majors || []) {
+                const option = el("option", "", major.name);
+                option.value = major.name;
+                majorSelect.append(option);
+            }
+            // 大类方案排在最前；默认展示第一个真正的专业，课程最完整。
+            const majors = college?.majors || [];
+            const preferred = majors.find((m) => m.plans.some((p) => p.program_type === "主修专业")) || majors[0];
+            if (preferred) majorSelect.value = preferred.name;
+            fillPlanTypes();
+        }
+
+        function fillPlanTypes(selectedProgram) {
+            const major = (currentCollege()?.majors || []).find((m) => m.name === $("graph-major").value);
+            const container = $("graph-plan-types");
+            container.replaceChildren();
+            const plans = major?.plans || [];
+            const chosen = selectedProgram || plans[0]?.program_name;
+            for (const plan of plans) {
+                const button = el("button", "", `${plan.program_type || "培养方案"}（${plan.course_count}）`);
+                button.type = "button";
+                button.setAttribute("aria-pressed", String(plan.program_name === chosen));
+                button.addEventListener("click", () => fillPlanTypes(plan.program_name));
+                container.append(button);
+            }
+            if (chosen) loadGraph(chosen);
+        }
+
+        $("graph-college").addEventListener("change", fillMajors);
+        $("graph-major").addEventListener("change", () => fillPlanTypes());
+
+        async function loadGraph(programName) {
+            $("graph-empty").hidden = false;
+            $("graph-empty").textContent = "正在构建课程网络……";
+            svg.replaceChildren();
+            try {
+                graphState.data = await getJSON(`/programs/graph?${new URLSearchParams({ program_name: programName })}`);
+            } catch (error) {
+                $("graph-empty").textContent = `课程图谱读取失败：${error.message}`;
+                return;
+            }
+            graphState.selected = null;
+            const data = graphState.data;
+            $("graph-title").textContent = data.program_name;
+            $("graph-type-tag").textContent = data.program_type || "培养方案";
+            $("graph-type-tag").hidden = false;
+            const knowledgeToggle = $("show-knowledge");
+            knowledgeToggle.disabled = !data.knowledge_available;
+            knowledgeToggle.parentElement.title = data.knowledge_available ? "" : "概念图谱产物尚未生成";
+            renderGroupFilters();
+            renderStats();
+            renderCourseDetail();
+            drawGraph();
+        }
+
+        function renderGroupFilters() {
+            const container = $("graph-groups");
+            container.replaceChildren();
+            const counts = new Map((graphState.data.groups || []).map((g) => [g.key, g.count]));
+            for (const key of GROUP_ORDER) {
+                if (!counts.has(key)) continue;
+                const label = el("label", "check");
+                const input = el("input");
+                input.type = "checkbox";
+                input.checked = !graphState.hiddenGroups.has(key);
+                input.addEventListener("change", () => {
+                    if (input.checked) graphState.hiddenGroups.delete(key);
+                    else graphState.hiddenGroups.add(key);
+                    drawGraph();
+                });
+                const swatch = el("span", "legend-swatch");
+                swatch.style.background = GROUP_COLORS[key];
+                label.append(input, swatch, el("span", "", GROUP_LABELS[key]), el("span", "legend-count", counts.get(key)));
+                container.append(label);
+            }
+        }
+
+        function nodeByCode(code) {
+            return (graphState.data?.nodes || []).find((n) => n.course_code === code);
+        }
+        function courseLabel(code) {
+            const node = nodeByCode(code);
+            return node ? `${node.course_name}（${code}）` : code;
+        }
+
+        function renderStats() {
+            const stats = graphState.data.stats || {};
+            const box = $("graph-stats");
+            box.replaceChildren();
+            const item = (label, value) => {
+                const span = el("span", "", `${label} `);
+                span.append(el("b", "", value));
+                return span;
+            };
+            box.append(
+                item("课程", `${stats.course_count ?? 0} 门`),
+                item("先修关系", `${stats.prerequisite_edge_count ?? 0} 条`),
+                item("涉及先修", `${stats.linked_course_count ?? 0} 门`),
+                item("知识关联", graphState.data.knowledge_available ? `${stats.knowledge_edge_count ?? 0} 条` : "未生成"),
+            );
+            const chain = stats.longest_chain || [];
+            if (chain.length > 1) {
+                const link = el("button", "btn-link", `最长先修链：${chain.map((code) => nodeByCode(code)?.course_name || code).join(" → ")}`);
+                link.type = "button";
+                link.title = "在图中高亮这条链";
+                link.addEventListener("click", () => {
+                    graphState.selected = null;
+                    selectCourse(chain[chain.length - 1]);
+                    scrollToCourse(chain[0]);
+                });
+                box.append(link);
+            }
+        }
+
+        function visibleEdges() {
+            const data = graphState.data;
+            const edges = [];
+            if ($("show-prereq").checked) edges.push(...data.edges);
+            if ($("show-knowledge").checked && !$("show-knowledge").disabled) edges.push(...data.knowledge_edges);
+            return edges;
+        }
+
+        function computeLayout() {
+            const data = graphState.data;
+            const edges = visibleEdges();
+            const linked = new Set();
+            for (const edge of edges) {
+                linked.add(edge.source);
+                linked.add(edge.target);
+            }
+            const onlyLinked = $("only-linked").checked;
+            const nodes = data.nodes.filter((node) => {
+                if (graphState.hiddenGroups.has(node.group)) return false;
+                if (onlyLinked && !linked.has(node.course_code)) return false;
+                // 方案外的先修课只为连线而存在，没有可见连线时不单独出现。
+                if (node.external && !linked.has(node.course_code)) return false;
+                return true;
+            });
+            const columns = (data.semesters || []).map((s) => ({ key: s, label: `第 ${s} 学期`, nodes: [] }));
+            const flex = { key: "flex", label: "弹性 / 未定学期", nodes: [] };
+            const byKey = new Map(columns.map((c) => [c.key, c]));
+            for (const node of nodes) {
+                (byKey.get(node.semester) || flex).nodes.push(node);
+            }
+            if (flex.nodes.length) columns.push(flex);
+            const positions = new Map();
+            let maxY = TOP;
+            columns.forEach((column, index) => {
+                column.nodes.sort((a, b) => (
+                    GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group)
+                    || Number(a.external) - Number(b.external)
+                    || a.course_code.localeCompare(b.course_code)
+                ));
+                let y = TOP;
+                let previousGroup = null;
+                for (const node of column.nodes) {
+                    if (previousGroup !== null && node.group !== previousGroup) y += GROUP_GAP;
+                    positions.set(node.course_code, { x: PAD_X + index * COL_W, y, node });
+                    y += NODE_H + ROW_GAP;
+                    previousGroup = node.group;
+                }
+                maxY = Math.max(maxY, y);
+            });
+            const visibleCodes = new Set(positions.keys());
+            graphState.positions = positions;
+            graphState.columns = columns;
+            graphState.edges = edges.filter((e) => visibleCodes.has(e.source) && visibleCodes.has(e.target));
+            graphState.linked = linked;
+            graphState.width = PAD_X * 2 + Math.max(1, columns.length) * COL_W - (COL_W - NODE_W);
+            graphState.height = maxY + 24;
+        }
+
+        function edgePath(edge) {
+            const a = graphState.positions.get(edge.source);
+            const b = graphState.positions.get(edge.target);
+            const y1 = a.y + NODE_H / 2;
+            const y2 = b.y + NODE_H / 2;
+            if (a.x === b.x) {
+                const x = a.x + NODE_W;
+                const bulge = 26 + Math.min(40, Math.abs(y2 - y1) / 6);
+                return `M${x},${y1} C${x + bulge},${y1} ${x + bulge},${y2} ${x + 2},${y2}`;
+            }
+            if (b.x > a.x) {
+                const x1 = a.x + NODE_W;
+                const x2 = b.x - 2;
+                const dx = Math.max(36, (x2 - x1) / 2);
+                return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+            }
+            const x1 = a.x;
+            const x2 = b.x + NODE_W + 2;
+            const dx = Math.max(36, (x1 - x2) / 2);
+            return `M${x1},${y1} C${x1 - dx},${y1} ${x2 + dx},${y2} ${x2},${y2}`;
+        }
+
+        function truncate(text, max) {
+            const value = String(text || "");
+            return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+        }
+
+        function drawGraph() {
+            const data = graphState.data;
+            if (!data) return;
+            computeLayout();
+            svg.replaceChildren();
+            const empty = $("graph-empty");
+            if (!graphState.positions.size) {
+                empty.hidden = false;
+                empty.textContent = "当前筛选条件下没有课程。";
+                renderEdgeTable();
+                return;
+            }
+            empty.hidden = true;
+            applyZoom();
+            const defs = svgEl("defs");
+            for (const [id, color] of [
+                ["arrow-prereq", "var(--edge-prereq)"],
+                ["arrow-knowledge", "var(--edge-knowledge)"],
+                ["arrow-focus", "var(--accent)"],
+            ]) {
+                const marker = svgEl("marker", {
+                    id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse",
+                });
+                const tip = svgEl("path", { d: "M0,0 L10,5 L0,10 z" });
+                tip.style.fill = color;
+                marker.append(tip);
+                defs.append(marker);
+            }
+            svg.append(defs);
+
+            graphState.columns.forEach((column, index) => {
+                const x = PAD_X + index * COL_W;
+                if (index % 2 === 0) {
+                    svg.append(svgEl("rect", { class: "col-band", x: x - 10, y: 8, width: NODE_W + 20, height: graphState.height - 8, rx: 4 }));
+                }
+                const label = svgEl("text", { class: "col-label", x: x + NODE_W / 2, y: 28, "text-anchor": "middle" });
+                label.textContent = column.label;
+                const count = svgEl("text", { class: "col-count", x: x + NODE_W / 2, y: 44, "text-anchor": "middle" });
+                count.textContent = `${column.nodes.length} 门`;
+                svg.append(label, count);
+            });
+
+            const edgeLayer = svgEl("g");
+            for (const edge of graphState.edges) {
+                const d = edgePath(edge);
+                const path = svgEl("path", {
+                    d,
+                    class: `edge ${edge.type}`,
+                    "data-source": edge.source,
+                    "data-target": edge.target,
+                    "marker-end": `url(#arrow-${edge.type === "prerequisite" ? "prereq" : "knowledge"})`,
+                });
+                if (edge.type === "knowledge") {
+                    path.style.strokeWidth = String(1 + Math.min(edge.weight || 1, 4) * 0.35);
+                }
+                const hit = svgEl("path", { d, class: "edge-hit" });
+                hit.addEventListener("mousemove", (event) => showEdgeTooltip(event, edge));
+                hit.addEventListener("mouseleave", hideTooltip);
+                edgeLayer.append(path, hit);
+            }
+            svg.append(edgeLayer);
+
+            const nodeLayer = svgEl("g");
+            const query = $("graph-search").value.trim().toLowerCase();
+            for (const [code, position] of graphState.positions) {
+                const node = position.node;
+                const classes = ["node"];
+                if (node.external) classes.push("external");
+                if (!graphState.linked.has(code)) classes.push("isolated");
+                if (query && (node.course_name.toLowerCase().includes(query) || code.toLowerCase().includes(query))) classes.push("match");
+                const group = svgEl("g", { class: classes.join(" "), transform: `translate(${position.x},${position.y})`, tabindex: 0, "data-code": code });
+                group.append(svgEl("rect", { class: "box", width: NODE_W, height: NODE_H, rx: 3 }));
+                const stripe = svgEl("rect", { x: 0, y: 0, width: 4, height: NODE_H, rx: 1 });
+                stripe.style.fill = GROUP_COLORS[node.group];
+                group.append(stripe);
+                const name = svgEl("text", { class: "name", x: 11, y: 15 });
+                name.textContent = truncate(node.course_name, 9);
+                const codeText = svgEl("text", { class: "code", x: 11, y: 28 });
+                codeText.textContent = `${code}${node.credits != null ? ` · ${node.credits}学分` : ""}${node.external ? " · 方案外" : ""}`;
+                const title = svgEl("title");
+                title.textContent = `${node.course_name}（${code}）`;
+                group.append(title, name, codeText);
+                group.addEventListener("mouseenter", (event) => {
+                    graphState.hovered = code;
+                    applyFocus();
+                    showNodeTooltip(event, node);
+                });
+                group.addEventListener("mousemove", (event) => moveTooltip(event));
+                group.addEventListener("mouseleave", () => {
+                    graphState.hovered = null;
+                    applyFocus();
+                    hideTooltip();
+                });
+                group.addEventListener("click", () => selectCourse(code));
+                group.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        selectCourse(code);
+                    }
+                });
+                nodeLayer.append(group);
+            }
+            svg.append(nodeLayer);
+            applyFocus();
+            renderEdgeTable();
+        }
+
+        function relatedSet(code) {
+            const forward = new Map();
+            const backward = new Map();
+            for (const edge of graphState.edges) {
+                if (!forward.has(edge.source)) forward.set(edge.source, []);
+                if (!backward.has(edge.target)) backward.set(edge.target, []);
+                forward.get(edge.source).push(edge.target);
+                backward.get(edge.target).push(edge.source);
+            }
+            const walk = (start, adjacency) => {
+                const seen = new Set();
+                const stack = [start];
+                while (stack.length) {
+                    const current = stack.pop();
+                    for (const next of adjacency.get(current) || []) {
+                        if (!seen.has(next)) {
+                            seen.add(next);
+                            stack.push(next);
+                        }
+                    }
+                }
+                return seen;
+            };
+            const ancestors = walk(code, backward);
+            const descendants = walk(code, forward);
+            return { nodes: new Set([code, ...ancestors, ...descendants]), ancestors, descendants };
+        }
+
+        function applyFocus() {
+            const focus = graphState.hovered || graphState.selected;
+            svg.classList.toggle("focus", Boolean(focus));
+            const related = focus ? relatedSet(focus) : null;
+            for (const node of svg.querySelectorAll(".node")) {
+                const code = node.dataset.code;
+                node.classList.toggle("related", Boolean(related && related.nodes.has(code)));
+                node.classList.toggle("selected", code === graphState.selected);
+            }
+            for (const path of svg.querySelectorAll("path.edge")) {
+                const on = Boolean(related)
+                    && related.nodes.has(path.dataset.source)
+                    && related.nodes.has(path.dataset.target)
+                    // 只高亮沿先修链方向的边：上游→焦点→下游，不把兄弟分支连起来。
+                    && (
+                        (related.ancestors.has(path.dataset.source) || path.dataset.source === focus)
+                        && (related.ancestors.has(path.dataset.target) || path.dataset.target === focus)
+                        || (related.descendants.has(path.dataset.target) && (related.descendants.has(path.dataset.source) || path.dataset.source === focus))
+                    );
+                path.classList.toggle("related", on);
+                const isPrereq = path.classList.contains("prerequisite");
+                path.setAttribute("marker-end", `url(#arrow-${on && isPrereq ? "focus" : isPrereq ? "prereq" : "knowledge"})`);
+            }
+        }
+
+        function showNodeTooltip(event, node) {
+            const incoming = graphState.edges.filter((e) => e.target === node.course_code);
+            const outgoing = graphState.edges.filter((e) => e.source === node.course_code);
+            tooltip.replaceChildren();
+            tooltip.append(el("b", "", `${node.course_name}（${node.course_code}）`));
+            const lines = [
+                `${node.semester_label} · ${node.subcategory || node.category || GROUP_LABELS[node.group]}`,
+                [node.credits != null ? `${node.credits} 学分` : "", node.hours != null ? `${node.hours} 学时` : ""].filter(Boolean).join(" · "),
+                `先修 / 基础 ${incoming.length} 门 · 后续 ${outgoing.length} 门`,
+                node.external ? `方案外课程，常规开设于：${node.home_program || "其他方案"}` : "",
+            ].filter(Boolean);
+            for (const line of lines) tooltip.append(el("div", "", line));
+            tooltip.hidden = false;
+            moveTooltip(event);
+        }
+
+        function showEdgeTooltip(event, edge) {
+            tooltip.replaceChildren();
+            tooltip.append(el("b", "", `${nodeByCode(edge.source)?.course_name || edge.source} → ${nodeByCode(edge.target)?.course_name || edge.target}`));
+            if (edge.type === "prerequisite") {
+                tooltip.append(el("div", "", "先修关系"));
+                const basis = edge.evidence_type === "syllabus" ? "教学大纲先修字段" : "培养方案先修栏";
+                tooltip.append(el("div", "", `依据：${basis}${edge.source_file ? `（${edge.source_file}）` : ""}`));
+            } else {
+                tooltip.append(el("div", "", `知识关联（推断）· ${edge.weight} 组概念依赖`));
+                for (const example of edge.examples || []) tooltip.append(el("div", "", `· ${example}`));
+            }
+            tooltip.hidden = false;
+            moveTooltip(event);
+        }
+
+        function moveTooltip(event) {
+            const x = Math.min(event.clientX + 14, window.innerWidth - 340);
+            const y = Math.min(event.clientY + 14, window.innerHeight - 140);
+            tooltip.style.left = `${x}px`;
+            tooltip.style.top = `${y}px`;
+        }
+        function hideTooltip() { tooltip.hidden = true; }
+
+        function selectCourse(code) {
+            graphState.selected = graphState.selected === code ? null : code;
+            applyFocus();
+            renderCourseDetail();
+        }
+
+        function relationList(title, edges, pick, emptyText) {
+            const wrap = el("div");
+            wrap.append(el("div", "rel-title", title));
+            const list = el("ul", "rel-list");
+            if (!edges.length) list.append(el("li", "muted", emptyText));
+            for (const edge of edges) {
+                const item = el("li");
+                const button = el("button", "btn-link", courseLabel(pick(edge)));
+                button.type = "button";
+                button.addEventListener("click", () => {
+                    graphState.selected = null;
+                    selectCourse(pick(edge));
+                    scrollToCourse(pick(edge));
+                });
+                item.append(button);
+                if (edge.type === "knowledge") {
+                    item.append(el("span", "why", `推断 · ${(edge.examples || []).slice(0, 2).join("；")}`));
+                } else if (edge.source_file) {
+                    item.append(el("span", "why", `依据：${edge.source_file}`));
+                }
+                list.append(item);
+            }
+            wrap.append(list);
+            return wrap;
+        }
+
+        function renderCourseDetail() {
+            const box = $("course-detail");
+            box.replaceChildren();
+            const code = graphState.selected;
+            const node = code ? nodeByCode(code) : null;
+            $("graph-detail").hidden = !node;
+            if (!node) {
+                return;
+            }
+            box.append(el("div", "course-title", node.course_name), el("div", "course-en", node.english_name || node.course_code));
+            const meta = el("dl", "detail-meta");
+            const rows = [
+                ["课程代码", node.course_code],
+                ["开课学期", node.semester_label],
+                ["课程类别", [node.category, node.subcategory].filter(Boolean).join(" / ") || GROUP_LABELS[node.group]],
+                ["学分学时", [node.credits != null ? `${node.credits} 学分` : "", node.hours != null ? `${node.hours} 学时` : ""].filter(Boolean).join("，") || "未标注"],
+            ];
+            if (node.instructor) rows.push(["课程负责人", node.instructor]);
+            if (node.external) rows.push(["所属方案", node.home_program || "本方案之外"]);
+            for (const [term, value] of rows) meta.append(el("dt", "", term), el("dd", "", value));
+            box.append(meta);
+            const all = [...graphState.data.edges, ...graphState.data.knowledge_edges];
+            const prereq = graphState.data.edges;
+            box.append(relationList("直接先修课程", prereq.filter((e) => e.target === code), (e) => e.source, "培养方案与大纲均未记录先修课程"));
+            box.append(relationList("直接后续课程", prereq.filter((e) => e.source === code), (e) => e.target, "本方案中没有以它为先修的课程"));
+            if (graphState.data.knowledge_available) {
+                const knowledge = all.filter((e) => e.type === "knowledge" && (e.source === code || e.target === code));
+                box.append(relationList("知识关联（推断）", knowledge, (e) => (e.source === code ? e.target : e.source), "无"));
+            }
+            const actions = el("div", "detail-actions");
+            const ask = el("button", "btn btn-primary", "就这门课提问");
+            ask.type = "button";
+            ask.addEventListener("click", () => askExample(`《${node.course_name}》主要讲什么？`, personaInput.value));
+            const path = el("button", "btn", "查看先修子图与建议学习层级");
+            path.type = "button";
+            path.addEventListener("click", () => askExample(`学《${node.course_name}》之前需要先修哪些课程？`, "student"));
+            actions.append(ask, path);
+            box.append(actions);
+        }
+
+        function scrollToCourse(code) {
+            const position = graphState.positions.get(code);
+            if (!position) return;
+            const scroller = $("graph-scroll");
+            scroller.scrollTo({
+                left: Math.max(0, position.x * graphState.zoom - scroller.clientWidth / 2),
+                top: Math.max(0, position.y * graphState.zoom - scroller.clientHeight / 2),
+                behavior: "smooth",
+            });
+        }
+
+        function renderEdgeTable() {
+            const body = $("edge-table").querySelector("tbody");
+            body.replaceChildren();
+            for (const edge of graphState.edges || []) {
+                const row = el("tr");
+                row.append(
+                    el("td", "", courseLabel(edge.source)),
+                    el("td", "", courseLabel(edge.target)),
+                    el("td", "", edge.type === "prerequisite" ? "先修" : `推断（${edge.weight}）`),
+                );
+                body.append(row);
+            }
+            if (!body.children.length) {
+                const row = el("tr");
+                const cell = el("td", "muted", "当前筛选下没有可见关系");
+                cell.colSpan = 3;
+                row.append(cell);
+                body.append(row);
+            }
+        }
+
+        function applyZoom() {
+            svg.setAttribute("viewBox", `0 0 ${graphState.width} ${graphState.height}`);
+            svg.setAttribute("width", String(Math.round(graphState.width * graphState.zoom)));
+            svg.setAttribute("height", String(Math.round(graphState.height * graphState.zoom)));
+            $("zoom-reset").textContent = `${Math.round(graphState.zoom * 100)}%`;
+        }
+        function setZoom(value) {
+            graphState.zoom = Math.min(1.6, Math.max(0.5, Math.round(value * 10) / 10));
+            applyZoom();
+        }
+        $("zoom-in").addEventListener("click", () => setZoom(graphState.zoom + 0.1));
+        $("zoom-out").addEventListener("click", () => setZoom(graphState.zoom - 0.1));
+        $("zoom-reset").addEventListener("click", () => setZoom(1));
+        for (const id of ["show-prereq", "show-knowledge", "only-linked"]) {
+            $(id).addEventListener("change", drawGraph);
+        }
+        $("graph-search").addEventListener("input", () => {
+            drawGraph();
+            const query = $("graph-search").value.trim().toLowerCase();
+            if (!query) return;
+            for (const [code, position] of graphState.positions) {
+                if (position.node.course_name.toLowerCase().includes(query) || code.toLowerCase().includes(query)) {
+                    scrollToCourse(code);
+                    break;
+                }
+            }
+        });
+        $("drawer-close").addEventListener("click", () => {
+            graphState.selected = null;
+            applyFocus();
+            renderCourseDetail();
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape" && graphState.selected) {
+                graphState.selected = null;
+                applyFocus();
+                renderCourseDetail();
+            }
+        });
+
+        // =====================================================================
+        // 方法与评测
+        // =====================================================================
+        const ROUTE_ROWS = [
+            ["fact", "数据可视化多少学分？", "培养方案字段、大纲课程基本信息", "否"],
+            ["structure", "某课第三章讲什么？", "大纲文档树（按原文章节顺序）", "否"],
+            ["content", "这门课主要学什么？", "大纲文本块（向量 + BM25 混合检索）", "是，逐句校验"],
+            ["dependency", "学 X 之前要先修什么？", "先修字段、先修图、课程—概念图谱", "解释时使用"],
+            ["catalog", "某专业的核心课程有哪些？", "培养方案课程类别", "否"],
+            ["hybrid", "无法归入以上类别的问题", "文本块 + 图谱路径", "是，逐句校验"],
+        ];
+
+        function renderRouteTable() {
+            const body = $("route-table");
+            body.replaceChildren();
+            for (const [route, example, source, llm] of ROUTE_ROWS) {
+                const row = el("tr");
+                const name = el("td");
+                name.append(el("div", "", ROUTE_LABELS[route]), el("div", "muted small", route));
+                row.append(name, el("td", "", example), el("td", "", source), el("td", "", llm));
+                body.append(row);
+            }
+        }
+
+        function renderPersonaTable() {
+            const body = $("persona-table");
+            body.replaceChildren();
+            const profiles = personaProfiles?.profiles;
+            if (!profiles) {
+                const row = el("tr");
+                const cell = el("td", "muted", "角色配置读取失败");
+                cell.colSpan = 4;
+                row.append(cell);
+                body.append(row);
+                return;
+            }
+            for (const key of ["student", "teacher", "visitor"]) {
+                const profile = profiles[key];
+                if (!profile) continue;
+                const row = el("tr");
+                row.append(
+                    el("td", "", PERSONA_LABELS[key]),
+                    el("td", "num", profile.syllabus_top_k),
+                    el("td", "num", profile.plan_top_k),
+                    el("td", "", sectionList(profile.preferred_sections)),
+                );
+                body.append(row);
+            }
+        }
+
+        function metric(value, label, note) {
+            const box = el("div", "metric");
+            box.append(el("div", "metric-value", fmt(value)), el("div", "metric-label", label));
+            if (note) box.append(el("div", "metric-note", note));
+            return box;
+        }
+
+        async function loadMethod() {
+            renderRouteTable();
+            if (!personaProfiles) await loadPersonas();
+            renderPersonaTable();
+            const meta = $("eval-meta");
+            const body = $("eval-body");
+            let report;
+            try {
+                report = await getJSON("/eval/latest");
+            } catch (_error) {
+                meta.textContent = "未找到评测报告。在项目根目录运行 python eval/run_eval.py 后刷新本页。";
+                return;
+            }
+            const env = report.environment || {};
+            const summary = report.dataset_summary || {};
+            meta.textContent = [
+                `报告 ${report.run_id}${report.tag ? `（${report.tag}）` : ""}`,
+                `生成于 ${String(report.created_at || "").slice(0, 10)}`,
+                summary.total ? `题目 ${summary.total} 道（有答案 ${summary.answerable ?? "—"}，无答案 ${summary.unanswerable ?? "—"}）` : "",
+                `大模型${env.llm_available ? "可用" : "不可用"} · 图数据库${env.neo4j_available ? "可用" : "不可用"}`,
+            ].filter(Boolean).join("　");
+            body.replaceChildren();
+            const routing = report.routing || {};
+            const retrieval = report.retrieval || {};
+            const refusal = report.refusal || {};
+            const generation = report.generation || {};
+            const headline = el("div", "metric-row");
+            headline.append(
+                metric(routing.accuracy, "路由准确率", routing.count ? `${routing.count} 题` : ""),
+                metric(retrieval["recall@5"], "检索 Recall@5", retrieval.chunk_level_items ? "含片段级金标" : "课程级金标"),
+                metric(refusal.correct_refusal_rate, "正确拒答率", refusal.unanswerable_items ? `${refusal.unanswerable_items} 道无答案题` : ""),
+                metric(refusal.false_refusal_rate, "误拒率", "越低越好；为拒答闸门的代价"),
+            );
+            body.append(headline);
+            const grid = el("div", "method-grid");
+            const perClass = routing.per_class || {};
+            const classTable = el("table", "academic");
+            classTable.append(el("caption", "", "表 3　各查询类型的路由表现"));
+            const thead = el("thead");
+            const headRow = el("tr");
+            for (const [text, cls] of [["类型", ""], ["精确率", "num"], ["召回率", "num"], ["F1", "num"], ["题数", "num"]]) headRow.append(el("th", cls, text));
+            thead.append(headRow);
+            const tbody = el("tbody");
+            for (const [route, values] of Object.entries(perClass)) {
+                if (!values || !values.support) continue;
+                const row = el("tr");
+                row.append(
+                    el("td", "", `${ROUTE_LABELS[route] || route}（${route}）`),
+                    el("td", "num", typeof values.precision === "number" ? values.precision.toFixed(2) : fmt(values.precision)),
+                    el("td", "num", typeof values.recall === "number" ? values.recall.toFixed(2) : fmt(values.recall)),
+                    el("td", "num", typeof values.f1 === "number" ? values.f1.toFixed(2) : fmt(values.f1)),
+                    el("td", "num", fmt(values.support)),
+                );
+                tbody.append(row);
+            }
+            classTable.append(thead, tbody);
+            const answerTable = el("table", "academic");
+            answerTable.append(el("caption", "", "表 4　检索与回答质量"));
+            const answerHead = el("thead");
+            const answerHeadRow = el("tr");
+            answerHeadRow.append(el("th", "", "指标"), el("th", "num", "数值"));
+            answerHead.append(answerHeadRow);
+            const answerBody = el("tbody");
+            const rows = [
+                ["Recall@1 / @5 / @10", [retrieval["recall@1"], retrieval["recall@5"], retrieval["recall@10"]].map((v) => fmt(v)).join(" / ")],
+                ["MRR", fmt(retrieval.mrr)],
+                ["答案要点命中率", fmt(generation.answer_key_coverage)],
+                ["引用精确率", fmt(generation.citation_precision)],
+                ["无引用作答率", fmt(generation.uncited_answer_rate)],
+                ["幻觉率（无答案题被作答）", fmt(refusal.hallucination_rate)],
+            ];
+            const structure = report.structure || generation.structure || null;
+            if (structure) {
+                if (structure.chapter_coverage !== undefined) rows.push(["章节覆盖率", fmt(structure.chapter_coverage)]);
+                if (structure.order_correct_rate !== undefined) rows.push(["章节顺序正确率", fmt(structure.order_correct_rate)]);
+            }
+            for (const [label, value] of rows) {
+                const row = el("tr");
+                row.append(el("td", "", label), el("td", "num", value));
+                answerBody.append(row);
+            }
+            answerTable.append(answerHead, answerBody);
+            grid.append(classTable, answerTable);
+            body.append(grid);
+        }
+
+        // =====================================================================
+        // 启动
+        // =====================================================================
+        renderCapabilities();
+        selectPersona(personaInput.value);
+        loadPersonas();
+        loadOverview();
+        showView(location.hash.slice(1) || "overview");
+    </script>
+</body>
+</html>
